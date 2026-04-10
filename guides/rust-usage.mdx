@@ -1,0 +1,205 @@
+---
+title: "Rust Usage Guide for RMA Kinetics"
+description: "Complete walkthrough of the rma-kinetics Rust crate: adding it as a dependency, building models, running solvers, and accessing simulation results."
+---
+
+The `rma-kinetics` crate provides the core kinetic models as pure Rust structs. You can integrate it directly into any Rust project for high-performance simulation, embed it in a larger analysis pipeline, or use it as the foundation for your own language bindings. The crate depends on [`differential-equations`](https://docs.rs/differential-equations) for ODE and SDE solvers.
+
+## Adding the dependency
+
+Add `rma-kinetics` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+rma-kinetics = "0.1.1"
+differential-equations = "0.5"
+```
+
+Or use `cargo add`:
+
+```bash
+cargo add rma-kinetics
+```
+
+### Feature flags
+
+| Feature          | Description                                                       |
+| ---------------- | ----------------------------------------------------------------- |
+| `py`             | Enables PyO3 Python bindings. Used when building the Python wheel. |
+| `polars-native`  | Adds `ToDataFrame` for converting solutions to Polars DataFrames (native CPU). |
+| `polars-wasm`    | Same as `polars-native` but targeting WebAssembly.               |
+
+## Importing
+
+Bring the `Solve` trait and a model module into scope. The solver comes from the `differential_equations` crate:
+
+```rust
+use rma_kinetics::{models::constitutive, Solve};
+use differential_equations::methods::ExplicitRungeKutta;
+```
+
+## Running a constitutive model
+
+<Steps>
+  <Step title="Create a model">
+    `Model::default()` uses the built-in parameters tuned to human-synapsin promoter expression in CA1 hippocampus (production: 0.2 nM/hr, BBB transport: 0.6 1/hr, degradation: 0.007 1/hr). Use `Model::new()` or the builder pattern for custom values.
+
+    ```rust
+    use rma_kinetics::models::constitutive;
+
+    // Default parameters
+    let model = constitutive::Model::default();
+
+    // Custom parameters
+    let model = constitutive::Model::new(0.5, 0.7, 0.005);
+
+    // Builder pattern — useful when only some parameters need changing
+    let model = constitutive::Model::builder()
+        .prod(0.5)
+        .bbb_transport(0.7)
+        .build()
+        .unwrap();
+    ```
+  </Step>
+  <Step title="Create an initial state">
+    `State::zeros()` and `State::default()` both initialize all compartments to zero:
+
+    ```rust
+    let init_state = constitutive::State::zeros();
+    // equivalent to:
+    let init_state = constitutive::State::default();
+    ```
+  </Step>
+  <Step title="Choose a solver">
+    Create an `ExplicitRungeKutta` solver. `dopri5()` (Dormand-Prince 5(4)) is a good default for the constitutive model.
+
+    ```rust
+    use differential_equations::methods::ExplicitRungeKutta;
+
+    let mut solver = ExplicitRungeKutta::dopri5();
+    ```
+  </Step>
+  <Step title="Solve">
+    Call `model.solve(t0, tf, dt, init_state, &mut solver)`. The solver argument is taken by mutable reference because adaptive solvers update internal state between steps.
+
+    ```rust
+    use rma_kinetics::Solve;
+
+    let solution = model.solve(0., 504., 1., init_state, &mut solver);
+    assert!(solution.is_ok());
+    let solution = solution.unwrap();
+    ```
+  </Step>
+  <Step title="Access results">
+    The returned `Solution` struct is from the `differential_equations` crate. The `y` field is a `Vec` of `State` values, and `t` is a `Vec<f64>` of time points.
+
+    ```rust
+    // Collect plasma RMA into a Vec<f64>
+    let plasma_rma: Vec<f64> = solution.y
+        .iter()
+        .map(|state| state.plasma_rma)
+        .collect();
+
+    // Collect brain RMA
+    let brain_rma: Vec<f64> = solution.y
+        .iter()
+        .map(|state| state.brain_rma)
+        .collect();
+
+    // Time points
+    let time_points: &Vec<f64> = &solution.t;
+
+    println!("Final plasma RMA: {:.4}", plasma_rma.last().unwrap());
+    ```
+  </Step>
+</Steps>
+
+## Complete constitutive model example
+
+```rust
+use rma_kinetics::{models::constitutive, Solve};
+use differential_equations::methods::ExplicitRungeKutta;
+
+fn main() {
+    let model      = constitutive::Model::default();
+    let init_state = constitutive::State::zeros();
+    let mut solver = ExplicitRungeKutta::dopri5();
+
+    let solution = model
+        .solve(0., 504., 1., init_state, &mut solver)
+        .expect("simulation failed");
+
+    let plasma_rma: Vec<f64> = solution.y
+        .iter()
+        .map(|s| s.plasma_rma)
+        .collect();
+
+    println!(
+        "Peak plasma RMA: {:.4} nM at t = {:.1} hr",
+        plasma_rma.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        solution.t[plasma_rma
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .map(|(i, _)| i)
+            .unwrap()],
+    );
+}
+```
+
+## Using the SolutionAccess trait
+
+The `SolutionAccess` trait provides named accessors that return `Result<Vec<f64>, SpeciesAccessError>`. This is particularly useful when writing generic code that handles multiple model types:
+
+```rust
+use rma_kinetics::{models::constitutive, Solve, SolutionAccess};
+use differential_equations::methods::ExplicitRungeKutta;
+
+let model      = constitutive::Model::default();
+let init_state = constitutive::State::zeros();
+let mut solver = ExplicitRungeKutta::dopri5();
+
+let solution = model.solve(0., 100., 1., init_state, &mut solver).unwrap();
+
+let plasma = solution.plasma_rma().expect("plasma RMA not available");
+let brain  = solution.brain_rma().expect("brain RMA not available");
+
+// Fields unavailable for this model return Err(SpeciesAccessError)
+assert!(solution.tta().is_err());
+```
+
+## Converting to a Polars DataFrame
+
+Enable the `polars-native` feature to access the `ToDataFrame` trait:
+
+```toml
+[dependencies]
+rma-kinetics = { version = "0.1.1", features = ["polars-native"] }
+```
+
+```rust
+use rma_kinetics::{models::constitutive, Solve, solve::ToDataFrame};
+use differential_equations::methods::ExplicitRungeKutta;
+
+let model      = constitutive::Model::default();
+let mut solver = ExplicitRungeKutta::dopri5();
+let solution   = model.solve(0., 504., 1., constitutive::State::zeros(), &mut solver).unwrap();
+
+let df = solution.to_dataframe().expect("DataFrame conversion failed");
+// Columns: "time", "brain_rma", "plasma_rma"
+println!("{:?}", df);
+```
+
+## Differences from the Python API
+
+| Aspect | Rust | Python |
+| ------ | ---- | ------ |
+| Solver argument | `&mut solver` (mutable reference) | `solver` (value, passed by copy) |
+| Return type | `Result<Solution<f64, State>, Error>` | `Solution` (raises on error) |
+| State initialization | `State::zeros()` / `State::default()` | `State()` |
+| Species access | `.y.iter().map(\|s\| s.plasma_rma)` or `SolutionAccess` | `solution.plasma_rma` (numpy array) |
+| Stochastic solve | `StochasticSolve` trait, `&mut self` | `StochasticModel.solve()` |
+
+<Note>
+  The Python `Solution` class (internally `PySolution`) wraps the native Rust `Solution` struct. When working at the Rust level you get the `differential_equations::solution::Solution` struct directly, giving you full control over the solution data without any FFI overhead.
+</Note>

@@ -1,0 +1,63 @@
+---
+title: "RMA Kinetic Models Overview"
+description: "Explore the full suite of RMA kinetic models for simulating Released Marker of Activity dynamics in brain tissue and blood plasma."
+---
+
+The RMA Kinetics library provides a set of ordinary differential equation (ODE) models for simulating the production, transport, and degradation of Released Markers of Activity (RMAs) — synthetic serum reporters expressed in the brain. Each model exposes a `Model` struct/class that holds kinetic parameters and a `State` struct/class that holds the current concentrations of each tracked species. Solving a model returns a `Solution` object you can query by species name.
+
+<CardGroup cols={2}>
+  <Card title="Constitutive" icon="circle-dot" href="/models/constitutive">
+    Continuous, drug-independent RMA expression driven by a constitutive promoter. The simplest model — two species, three parameters.
+  </Card>
+  <Card title="Tet-Off" icon="toggle-off" href="/models/tetoff">
+    Doxycycline-suppressible expression under the tetracycline responsive element. Tracks five species including tTA and dox compartments.
+  </Card>
+  <Card title="Chemogenetic" icon="brain" href="/models/chemogenetic">
+    DREADD-induced and dox-gated RMA expression for monitoring neuronal activity. The most complex model — eleven tracked species.
+  </Card>
+  <Card title="Oscillation" icon="wave-sine" href="/models/oscillation">
+    Sinusoidal production proxy for rapidly changing gene expression. Supports stochastic noise injection via `apply_noise()`.
+  </Card>
+  <Card title="Pharmacokinetics" icon="flask-conical" href="/models/pharmacokinetics">
+    Standalone doxycycline and CNO/CLZ PK sub-models with dosing schedule helpers used inside Tet-Off and Chemogenetic models.
+  </Card>
+</CardGroup>
+
+## Species tracked per model
+
+The table below shows which compartment species each model tracks. Species marked with a check are part of the model's `State` and accessible on the returned `Solution`.
+
+| Species          | Constitutive | Tet-Off | Chemogenetic | Oscillation | Dox PK | CNO PK |
+|------------------|:---:|:---:|:---:|:---:|:---:|:---:|
+| `brain_rma`      | ✓   | ✓   | ✓   | ✓   |     |     |
+| `plasma_rma`     | ✓   | ✓   | ✓   | ✓   |     |     |
+| `tTA`            |     | ✓   | ✓   |     |     |     |
+| `plasma_dox`     |     | ✓   | ✓   |     | ✓   |     |
+| `brain_dox`      |     | ✓   | ✓   |     | ✓   |     |
+| `DREADD`         |     |     | ✓   |     |     |     |
+| `peritoneal_cno` |     |     | ✓   |     |     | ✓   |
+| `plasma_cno`     |     |     | ✓   |     |     | ✓   |
+| `brain_cno`      |     |     | ✓   |     |     | ✓   |
+| `plasma_clz`     |     |     | ✓   |     |     | ✓   |
+| `brain_clz`      |     |     | ✓   |     |     | ✓   |
+
+## Model and State pattern
+
+Every model follows the same two-type pattern:
+
+- **`Model`** — holds kinetic rate parameters. Constructed with sensible defaults derived from published experimental data. Call `.solve(t0, tf, dt, init_state, solver)` to integrate the ODE system over a time interval.
+- **`State`** — holds the initial concentrations of each species. All fields default to `0.0`.
+
+```python
+from rma_kinetics.models.constitutive import Model, State
+from rma_kinetics.solvers import Dopri5
+
+model = Model()                  # default kinetic parameters
+state = State()                  # all species start at 0 nM
+solver = Dopri5()
+solution = model.solve(0, 504, 1, state, solver)
+
+plasma = solution.plasma_rma     # NDArray[float64], one value per time point
+```
+
+In Rust the pattern is identical — use `Model::default()`, `State::zeros()`, and call `.solve()` via the `Solve` trait.

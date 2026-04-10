@@ -1,0 +1,312 @@
+---
+title: "Pharmacokinetic Sub-Models: Dox and CNO"
+description: "Configure doxycycline and CNO/CLZ pharmacokinetic sub-models with oral or bolus dosing schedules for use in Tet-Off and Chemogenetic models."
+---
+
+The library includes two standalone pharmacokinetic (PK) sub-models: one for doxycycline (Dox) and one for clozapine-N-oxide/clozapine (CNO/CLZ). Both can be solved independently, but their primary use is as embedded sub-models within the [Tet-Off](/models/tetoff) and [Chemogenetic](/models/chemogenetic) models, where they drive drug concentrations in plasma and brain that regulate gene expression. Each PK model pairs with a schedule helper function (`create_dox_schedule` or `create_cno_schedule`) to conveniently generate multi-dose regimens.
+
+---
+
+## Doxycycline PK model
+
+Doxycycline is assumed to be administered via dox-supplemented food or water. The model converts a dose concentration and a vehicle intake rate through bioavailability, absorption, and bi-directional plasma–brain transport.
+
+### Model parameters
+
+<ParamField path="vehicle_intake" type="float" default="1.875e-4">
+  Vehicle (food or water) intake rate (mg chow/hr). Corresponds to approximately 4.5 g chow per day.
+</ParamField>
+
+<ParamField path="bioavailability" type="float" default="0.9">
+  Fraction of the dose that reaches systemic circulation (0–1).
+</ParamField>
+
+<ParamField path="absorption" type="float" default="0.8">
+  Rate of doxycycline absorption from vehicle into plasma (1/hr).
+</ParamField>
+
+<ParamField path="elimination" type="float" default="0.2">
+  Plasma elimination rate (1/hr).
+</ParamField>
+
+<ParamField path="brain_transport" type="float" default="0.2">
+  Plasma-to-brain transport rate (1/hr).
+</ParamField>
+
+<ParamField path="plasma_transport" type="float" default="1.0">
+  Brain-to-plasma transport rate (1/hr).
+</ParamField>
+
+<ParamField path="plasma_vd" type="float" default="0.21">
+  Plasma volume of distribution (L/kg).
+</ParamField>
+
+<ParamField path="schedule" type="list[AccessPeriod]" default="[]">
+  List of `AccessPeriod` objects defining when and at what concentration dox food or water is available. An empty list means no administration.
+</ParamField>
+
+### State fields
+
+<ParamField path="plasma_dox" type="float" default="0.0">
+  Doxycycline concentration in plasma (nM).
+</ParamField>
+
+<ParamField path="brain_dox" type="float" default="0.0">
+  Doxycycline concentration in brain (nM).
+</ParamField>
+
+### AccessPeriod
+
+An `AccessPeriod` defines a window during which dox-supplemented food or water is available to the animal.
+
+<ParamField path="dose" type="float">
+  Doxycycline concentration in the vehicle (mg/kg chow).
+</ParamField>
+
+<ParamField path="start_time" type="float">
+  Time at which the animal gains access to dox food/water (hr).
+</ParamField>
+
+<ParamField path="stop_time" type="float">
+  Time at which dox food/water is removed (hr).
+</ParamField>
+
+### create_dox_schedule
+
+`create_dox_schedule` is a convenience function for building repeated dox administration schedules without manually constructing each `AccessPeriod`.
+
+```
+create_dox_schedule(dose, start_time, duration, repeat=None, interval=None)
+```
+
+| Parameter    | Type            | Description                                                              |
+|--------------|-----------------|--------------------------------------------------------------------------|
+| `dose`       | `float`         | Dox concentration in vehicle (mg/kg chow)                                |
+| `start_time` | `float`         | Start time of the first access period (hr)                               |
+| `duration`   | `float`         | Duration of each access period (hr)                                      |
+| `repeat`     | `int` or `None` | Number of additional repetitions (0 or `None` gives a single period)     |
+| `interval`   | `float` or `None` | Gap between the end of one period and start of the next (hr). Defaults to 0. |
+
+Returns a `list[AccessPeriod]`.
+
+### Code examples
+
+<Tabs>
+  <Tab title="Python">
+```python
+from rma_kinetics.models.dox import Model, State, create_dox_schedule
+from rma_kinetics.solvers import Dopri5
+
+# 48-hour continuous access starting at t=0
+schedule = create_dox_schedule(dose=40.0, start_time=0.0, duration=48.0)
+
+# Two 24-hour access periods separated by a 24-hour washout
+schedule = create_dox_schedule(
+    dose=40.0,
+    start_time=0.0,
+    duration=24.0,
+    repeat=1,
+    interval=24.0,
+)
+
+dox_model = Model(schedule=schedule)
+state = State()
+solution = dox_model.solve(0, 120, 1, state, Dopri5())
+
+plasma_dox = solution.plasma_dox  # NDArray[float64]
+brain_dox  = solution.brain_dox   # NDArray[float64]
+```
+  </Tab>
+  <Tab title="Rust">
+```rust
+use rma_kinetics::{models::dox::{self, AccessPeriod, create_dox_schedule}, Solve};
+use differential_equations::methods::ExplicitRungeKutta;
+
+// Single 48-hour access period
+let period = AccessPeriod::new(40., 0.0..=48.);
+let model = dox::Model::builder()
+    .schedule(vec![period])
+    .build()?;
+
+let mut solver = ExplicitRungeKutta::dopri5();
+let solution = model.solve(0., 120., 1., dox::State::zeros(), &mut solver)?;
+
+// Helper: two 24-hour periods with a 24-hour gap
+let schedule = create_dox_schedule(40., 0., 24., Some(1), Some(24.));
+assert_eq!(schedule.len(), 2);
+```
+  </Tab>
+</Tabs>
+
+---
+
+## CNO/CLZ PK model
+
+CNO (clozapine-N-oxide) is administered as an intraperitoneal bolus injection. CNO is absorbed from the peritoneal compartment into plasma, distributed into the brain, and partially back-metabolized to its parent compound clozapine (CLZ). CLZ is independently transported between plasma and brain and eliminated separately.
+
+### Model parameters
+
+<ParamField path="doses" type="list[Dose]" default="[]">
+  List of `Dose` objects representing individual CNO injections. Each dose is applied as a bolus at the specified time.
+</ParamField>
+
+<ParamField path="cno_absorption" type="float" default="23.94">
+  Rate of CNO absorption from the peritoneal compartment into plasma (1/hr).
+</ParamField>
+
+<ParamField path="cno_elimination" type="float" default="0.0">
+  CNO elimination rate from plasma (1/hr).
+</ParamField>
+
+<ParamField path="cno_reverse_metabolism" type="float" default="0.0">
+  Rate of CNO back-conversion to CLZ in plasma (1/hr).
+</ParamField>
+
+<ParamField path="clz_metabolism" type="float" default="0.0">
+  Rate of CLZ conversion from CNO metabolite to clearance (1/hr).
+</ParamField>
+
+<ParamField path="clz_elimination" type="float" default="0.0">
+  CLZ elimination rate from plasma (1/hr).
+</ParamField>
+
+<ParamField path="cno_brain_transport" type="float" default="0.0">
+  Plasma-to-brain transport rate for CNO (1/hr).
+</ParamField>
+
+<ParamField path="cno_plasma_transport" type="float" default="0.0">
+  Brain-to-plasma transport rate for CNO (1/hr).
+</ParamField>
+
+<ParamField path="clz_brain_transport" type="float" default="0.0">
+  Plasma-to-brain transport rate for CLZ (1/hr).
+</ParamField>
+
+<ParamField path="clz_plasma_transport" type="float" default="0.0">
+  Brain-to-plasma transport rate for CLZ (1/hr).
+</ParamField>
+
+<ParamField path="cno_plasma_vd" type="float" default="0.0">
+  Volume of distribution for CNO in plasma (L/kg).
+</ParamField>
+
+<ParamField path="cno_brain_vd" type="float" default="0.0">
+  Volume of distribution for CNO in brain (L/kg).
+</ParamField>
+
+<ParamField path="clz_plasma_vd" type="float" default="0.0">
+  Volume of distribution for CLZ in plasma (L/kg).
+</ParamField>
+
+<ParamField path="clz_brain_vd" type="float" default="0.0">
+  Volume of distribution for CLZ in brain (L/kg).
+</ParamField>
+
+### State fields
+
+<ParamField path="peritoneal_cno" type="float" default="0.0">
+  CNO amount in peritoneal compartment (nmol). Bolus doses are added directly to this compartment.
+</ParamField>
+
+<ParamField path="plasma_cno" type="float" default="0.0">
+  CNO concentration in plasma (nM).
+</ParamField>
+
+<ParamField path="brain_cno" type="float" default="0.0">
+  CNO concentration in brain (nM).
+</ParamField>
+
+<ParamField path="plasma_clz" type="float" default="0.0">
+  Clozapine concentration in plasma (nM).
+</ParamField>
+
+<ParamField path="brain_clz" type="float" default="0.0">
+  Clozapine concentration in brain (nM).
+</ParamField>
+
+### Dose
+
+A `Dose` represents a single intraperitoneal CNO injection. The amount in nmol is computed automatically from mg and the molecular weight of CNO (342.8 g/mol).
+
+<ParamField path="mg" type="float">
+  CNO dose in milligrams.
+</ParamField>
+
+<ParamField path="time" type="float">
+  Administration time in hours.
+</ParamField>
+
+The `nmol` property is computed as `mg / 342.8 × 1e6` and is read-write on the returned object.
+
+### create_cno_schedule
+
+`create_cno_schedule` builds a list of `Dose` objects for repeated CNO injections.
+
+```
+create_cno_schedule(mg, start_time, repeat=None, interval=None)
+```
+
+| Parameter    | Type              | Description                                                             |
+|--------------|-------------------|-------------------------------------------------------------------------|
+| `mg`         | `float`           | Dose amount per injection (mg)                                          |
+| `start_time` | `float`           | Time of the first injection (hr)                                        |
+| `repeat`     | `int` or `None`   | Number of additional injections (0 or `None` gives a single dose)       |
+| `interval`   | `float` or `None` | Time between injections (hr). Defaults to 0 (all injections at `start_time`). |
+
+Returns a `list[Dose]`.
+
+### Code examples
+
+<Tabs>
+  <Tab title="Python">
+```python
+from rma_kinetics.models.cno import Model, State, Dose, create_cno_schedule
+from rma_kinetics.solvers import Kvaerno3
+
+# Single 0.03 mg bolus at t=0
+doses = create_cno_schedule(mg=0.03, start_time=0.0)
+
+# Three injections, 24 hours apart, starting at t=0
+doses = create_cno_schedule(mg=0.03, start_time=0.0, repeat=2, interval=24.0)
+
+cno_model = Model(doses=doses)
+state = State()
+solution = cno_model.solve(0, 72, 1, state, Kvaerno3())
+
+plasma_cno = solution.plasma_cno  # NDArray[float64]
+brain_cno  = solution.brain_cno   # NDArray[float64]
+brain_clz  = solution.brain_clz   # NDArray[float64]
+```
+
+```python
+# Construct doses manually
+dose_a = Dose(mg=0.03, time=0.0)
+dose_b = Dose(mg=0.03, time=24.0)
+cno_model = Model(doses=[dose_a, dose_b])
+```
+  </Tab>
+  <Tab title="Rust">
+```rust
+use rma_kinetics::{models::cno::{self, Dose, create_cno_schedule}, Solve};
+use differential_equations::methods::ExplicitRungeKutta;
+
+// Single dose at t=0
+let dose = Dose::new(0.03, 0.);
+let model = cno::Model::builder()
+    .doses(vec![dose])
+    .build()?;
+
+let mut solver = ExplicitRungeKutta::dopri5();
+let solution = model.solve(0., 48., 1., cno::State::zeros(), &mut solver)?;
+
+// Helper: two injections 24 h apart
+let schedule = create_cno_schedule(0.03, 0., Some(1), Some(24.));
+assert_eq!(schedule.len(), 2);
+assert_eq!(schedule[1].time, 24.);
+```
+  </Tab>
+</Tabs>
+
+<Tip>
+When using the CNO model standalone or embedded inside the Chemogenetic model, the `kvaerno3` solver handles the stiff absorption kinetics more reliably than `dopri5`, especially with short time steps or multiple closely spaced doses.
+</Tip>

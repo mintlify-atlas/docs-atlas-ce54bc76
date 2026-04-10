@@ -1,0 +1,62 @@
+---
+title: "Using the RMA Kinetics Web and Desktop App"
+description: "Guide to the RMA Kinetics graphical app: select models, configure parameters, run simulations, and install the desktop app on macOS or Windows."
+---
+
+The RMA Kinetics application provides a graphical interface for running the core kinetic models without writing any code. A web version is available at [nsbuitrago.github.io/rma-kinetics-app](https://nsbuitrago.github.io/rma-kinetics-app), and a native desktop application is available for macOS and Windows. Both platforms offer the same feature set; the desktop application additionally works offline.
+
+## Desktop app installation
+
+<Steps>
+  <Step title="Download the installer">
+    Go to the [Releases page](https://github.com/nsbuitrago/rma-kinetics-app/releases) and download the appropriate installer for your operating system:
+
+    - **macOS** — `.dmg` disk image
+    - **Windows** — `.msi` or `.exe` installer
+  </Step>
+  <Step title="Run the installer">
+    Open the downloaded file and follow the system prompts to complete installation.
+  </Step>
+  <Step title="Check for updates">
+    The application checks for updates automatically when it first launches. You can also trigger a manual update check from the sidebar at any time. If an update is available, you can download and install it directly from within the application.
+  </Step>
+</Steps>
+
+## Choosing a model
+
+The application displays a set of model selection tabs. Click a tab to switch models. The parameter panel updates automatically to show the parameters for that model, pre-filled with the default values used in the accompanying research.
+
+On the desktop application you can cycle through models using keyboard shortcuts:
+
+| Shortcut | Action |
+| -------- | ------ |
+| `Cmd + 1` (macOS) / `Ctrl + 1` (Windows) | Select model 1 |
+| `Cmd + 2` / `Ctrl + 2` | Select model 2 |
+| `Cmd + 3` / `Ctrl + 3` | Select model 3 |
+| `Cmd + 4` / `Ctrl + 4` | Select model 4 |
+
+## Configuring parameters
+
+Once you have selected a model, the parameter panel shows all available rate constants and pharmacokinetic inputs. Edit any field to override the default value. Parameters reset to their defaults when you switch models.
+
+<Tip>
+  The default parameters are chosen to reflect common experimental setups. Start with the defaults to understand the baseline model behaviour before exploring the effect of parameter changes.
+</Tip>
+
+## Running simulations
+
+Click the **Run Simulation** button to submit a job. The solver runs asynchronously; for more complex models such as the chemogenetic model, expect a short delay before results appear. Once the computation is complete, the plasma RMA trajectory is plotted automatically.
+
+## Viewing results
+
+By default the application plots the plasma RMA solution over the simulated time window. The chart is interactive — hover over the plot to read off individual time-point values.
+
+## Numerical instability
+
+<Warning>
+  Some parameter combinations can produce numerical instability in the graphical application. If you observe oscillating or diverging outputs that do not match your expectations, switch to the Python or Rust libraries where you have direct control over solver tolerances, step sizes, and solver selection. For example, stiff multi-scale models such as the chemogenetic model benefit from using an implicit solver like `Kvaerno3` with tighter tolerances.
+</Warning>
+
+## Getting help and reporting bugs
+
+For bug reports, feature requests, or other feedback, please open an issue on the [GitHub issues page](https://github.com/nsbuitrago/rma-kinetics-app/issues). Include a description of the parameters you used and the behaviour you observed to help the maintainers reproduce the problem.

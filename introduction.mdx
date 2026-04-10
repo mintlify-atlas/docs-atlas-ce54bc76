@@ -1,0 +1,60 @@
+---
+title: "RMA Kinetics: Library for Serum Reporter Simulation"
+description: "Rust and Python library of kinetic models for Released Markers of Activity — serum reporters for non-invasive in vivo gene expression monitoring."
+---
+
+RMA Kinetics is a library of kinetic models for synthetic serum reporters called Released Markers of Activity (RMAs). The core library is written in Rust for performance, with Python bindings for ergonomic integration with scientific computing tools such as NumPy. Both APIs expose the same underlying models and solvers.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install the library and run your first RMA kinetic simulation in minutes.
+  </Card>
+  <Card title="Models overview" icon="flask" href="/models/overview">
+    Explore the four core models: Constitutive, Tet-Off, Chemogenetic, and Oscillating.
+  </Card>
+  <Card title="Python API" icon="python" href="/guides/python-usage">
+    Use the Python bindings with NumPy-compatible `Solution` objects and dataclass-style solvers.
+  </Card>
+  <Card title="Rust API" icon="gear" href="/guides/rust-usage">
+    Integrate the `rma_kinetics` crate directly into your Rust project via crates.io.
+  </Card>
+</CardGroup>
+
+## What are RMAs?
+
+Released Markers of Activity (RMAs) are synthetic serum reporters engineered into specific cell populations. When those cells are active, they secrete a detectable protein into the bloodstream. Measuring RMA concentration in a blood sample lets researchers infer underlying neural or cellular activity without invasive procedures.
+
+RMA Kinetics models the full pharmacokinetic trajectory of these reporters: from gene expression in the brain, through the blood-brain barrier, and into the plasma. Models also incorporate doxycycline-controlled gene silencing, chemogenetic (DREADD) induction, and oscillating expression dynamics.
+
+## Available models
+
+Each model lives in a corresponding submodule under `rma_kinetics.models` (Python) or `rma_kinetics::models` (Rust). Every submodule exposes at least a `Model` struct/class and a `State` struct/class.
+
+<CardGroup cols={2}>
+  <Card title="Constitutive" icon="infinity" href="/models/constitutive">
+    Continuous RMA expression from a constitutive promoter. Default parameters reflect CA1 hippocampus expression under a human-synapsin promoter.
+  </Card>
+  <Card title="Tet-Off" icon="toggle-off" href="/models/tetoff">
+    Doxycycline-suppressible expression using the tetracycline responsive operator (TRE), paired with a doxycycline pharmacokinetic model.
+  </Card>
+  <Card title="Chemogenetic" icon="brain" href="/models/chemogenetic">
+    DREADD-induced expression gated by CNO dosing and doxycycline suppression. Combines CNO and doxycycline pharmacokinetic sub-models.
+  </Card>
+  <Card title="Oscillating" icon="wave-sine" href="/models/oscillation">
+    An artificially oscillating reporter that acts as a proxy for monitoring rapidly changing gene expression.
+  </Card>
+</CardGroup>
+
+## Rust and Python APIs
+
+The core library is published on [crates.io](https://crates.io/crates/rma-kinetics) as `rma_kinetics`. You can add it to any Rust project with a single command:
+
+```bash
+cargo add rma_kinetics
+```
+
+The Python bindings are built from source using [maturin](https://www.maturin.rs/) and expose the same models and solvers through a Pythonic interface. See the [quickstart](/quickstart) for step-by-step installation instructions.
+
+<Note>
+  The Python package on PyPI uses an older pure-Python implementation. For the latest Rust-backed bindings, build from source using maturin as described in the [quickstart](/quickstart).
+</Note>

@@ -1,0 +1,77 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "RMA Kinetics",
+  "projectDescription": "A Rust and Python library of kinetic models for Released Markers of Activity (RMAs), synthetic serum reporters used to monitor gene expression in vivo.",
+  "theme": "luma",
+  "primaryColor": "#4F6EF7",
+  "lightColor": "#EEF1FE",
+  "darkColor": "#1E2A6E",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "models/overview",
+              "models/constitutive",
+              "models/tetoff",
+              "models/chemogenetic",
+              "models/oscillation",
+              "models/pharmacokinetics"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "pages": [
+              "api/solvers",
+              "api/solution",
+              "api/rust"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/python-usage",
+              "guides/rust-usage",
+              "guides/stochastic",
+              "guides/application"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Four core kinetic models: Constitutive, Tet-Off, Chemogenetic, and Oscillating RMA",
+    "Dual Rust and Python API — high-performance core with ergonomic Python bindings via PyO3",
+    "Pharmacokinetic sub-models for doxycycline (dox) and clozapine-N-oxide (CNO)",
+    "Multiple ODE solvers including Dopri5, Kvaerno3, and RungeKutta4",
+    "Stochastic simulation support for the constitutive model",
+    "numpy-compatible Solution objects for downstream analysis",
+    "Graphical web and desktop application for interactive model exploration",
+    "Published on crates.io as rma_kinetics"
+  ],
+  "publicApiSurface": [
+    "models::constitutive::{Model, State, StochasticModel}",
+    "models::tetoff::{Model, State}",
+    "models::chemogenetic::{Model, State}",
+    "models::oscillation::{Model, State}",
+    "models::dox::{Model, State, create_dox_schedule, AccessPeriod}",
+    "models::cno::{Model, State, create_cno_schedule, Dose}",
+    "Solve (trait)",
+    "StochasticSolve (trait)",
+    "SolutionAccess (trait)",
+    "ApplyNoise (trait)",
+    "Solution.ts / .plasma_rma / .brain_rma / .tta / .plasma_dox / .brain_dox / .dreadd / .peritoneal_cno / .plasma_cno / .brain_cno / .plasma_clz / .brain_clz",
+    "solvers.Dopri5 / .Kvaerno3 / .RungeKutta4"
+  ]
+}

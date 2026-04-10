@@ -1,0 +1,230 @@
+---
+title: "Python Usage Guide for RMA Kinetics"
+description: "Step-by-step guide to installing and running RMA kinetic models in Python, from build setup to accessing numpy simulation results."
+---
+
+The `rma_kinetics` Python package exposes the full set of RMA kinetic models through a high-level API built on top of the Rust core library. All solvers return a `Solution` object whose fields are standard NumPy arrays, making results immediately usable with matplotlib, scipy, pandas, and other scientific Python tools.
+
+## Installation
+
+The Python bindings are compiled from source using [maturin](https://www.maturin.rs/). You will need a working Rust toolchain and `uv` installed before proceeding.
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/nsbuitrago/rma-kinetics-rs
+    cd rma-kinetics-rs
+    ```
+  </Step>
+  <Step title="Create a virtual environment">
+    ```bash
+    uv venv
+    ```
+  </Step>
+  <Step title="Build and install the Python extension">
+    ```bash
+    uvx maturin develop --uv --features py -m crates/rma-kinetics/Cargo.toml
+    ```
+
+    This compiles the Rust library with Python bindings enabled and installs it into the active virtual environment.
+  </Step>
+</Steps>
+
+## Importing the library
+
+Each model lives in its own submodule under `rma_kinetics.models`. Solvers are available from `rma_kinetics.solvers`.
+
+```python
+from rma_kinetics.models.constitutive import Model, State
+from rma_kinetics.solvers import Dopri5
+```
+
+For the chemogenetic model:
+
+```python
+from rma_kinetics.models.chemogenetic import Model, State
+from rma_kinetics.models.dox import Model as DoxModel, AccessPeriod
+from rma_kinetics.models.cno import Model as CnoModel, Dose
+from rma_kinetics.solvers import Kvaerno3
+```
+
+## Running a constitutive model
+
+The constitutive model describes constitutively expressed RMA reporter dynamics in brain tissue and blood-brain barrier transport to plasma. Default parameters correspond to human-synapsin promoter expression in the CA1 region of the hippocampus.
+
+<Steps>
+  <Step title="Create a model">
+    Call `Model()` to use the default parameters (`prod=0.2`, `bbb_transport=0.6`, `deg=0.007`), or pass custom values:
+
+    ```python
+    from rma_kinetics.models.constitutive import Model, State
+    from rma_kinetics.solvers import Dopri5
+
+    # Default parameters (CA1 hippocampus, human-synapsin promoter)
+    model = Model()
+
+    # Custom parameters
+    model = Model(prod=0.5, bbb_transport=0.7, deg=0.005)
+    ```
+  </Step>
+  <Step title="Create an initial state">
+    `State()` initializes both compartments to zero concentration:
+
+    ```python
+    init_state = State()
+
+    # Or with specific starting concentrations
+    init_state = State(brain_rma=0.0, plasma_rma=0.0)
+    ```
+  </Step>
+  <Step title="Choose a solver">
+    `Dopri5` (Dormand-Prince 5(4)) is a good default for the constitutive model. All solvers accept optional tolerance and step-size keyword arguments.
+
+    ```python
+    solver = Dopri5()
+
+    # With custom tolerances
+    solver = Dopri5(rtol=1e-8, atol=1e-8)
+    ```
+  </Step>
+  <Step title="Run the simulation">
+    Call `model.solve(t0, tf, dt, init_state, solver)`. Time units are hours.
+
+    ```python
+    t0 = 0    # start time (hr)
+    tf = 504  # end time (hr) — 3 weeks
+    dt = 1    # output time step (hr)
+
+    solution = model.solve(t0, tf, dt, init_state, solver)
+    ```
+  </Step>
+  <Step title="Access results">
+    The returned `Solution` object exposes each species as a NumPy array:
+
+    ```python
+    import numpy as np
+
+    plasma_rma = solution.plasma_rma  # NDArray[float64]
+    brain_rma  = solution.brain_rma   # NDArray[float64]
+    ts         = solution.ts          # time points
+
+    print(f"Final plasma RMA: {plasma_rma[-1]:.4f} nM")
+    print(f"Peak brain RMA:   {brain_rma.max():.4f} nM")
+    ```
+  </Step>
+</Steps>
+
+## Complete constitutive model example
+
+```python
+import matplotlib.pyplot as plt
+from rma_kinetics.models.constitutive import Model, State
+from rma_kinetics.solvers import Dopri5
+
+model      = Model()
+init_state = State()
+solver     = Dopri5()
+
+solution = model.solve(t0=0, tf=504, dt=1, init_state=init_state, solver=solver)
+
+plt.plot(solution.ts, solution.plasma_rma, label="Plasma RMA")
+plt.plot(solution.ts, solution.brain_rma,  label="Brain RMA")
+plt.xlabel("Time (hr)")
+plt.ylabel("Concentration (nM)")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+print(f"Elapsed solver time: {solution.elapsed_time():.4f} s")
+```
+
+## Running a chemogenetic model
+
+The chemogenetic model is a multi-scale ODE system that couples doxycycline and CNO pharmacokinetics with DREADD-gated RMA expression. It tracks tTA, plasma/brain doxycycline, DREADD receptor levels, and CNO/clozapine compartments in addition to plasma and brain RMA.
+
+<Note>
+  Use `Kvaerno3` (an L-stable implicit Runge-Kutta method) for the chemogenetic model. The stiff pharmacokinetic sub-systems can cause explicit solvers such as `Dopri5` to produce inaccurate results or fail.
+</Note>
+
+```python
+import matplotlib.pyplot as plt
+
+from rma_kinetics.models.chemogenetic import Model, State
+from rma_kinetics.models.dox import Model as DoxModel, AccessPeriod
+from rma_kinetics.models.cno import Model as CnoModel, Dose
+from rma_kinetics.solvers import Kvaerno3
+
+# Doxycycline PK: 40 mg/kg chow access from t=0 to t=24 hr
+dox_schedule = AccessPeriod(dose=40, start_time=0, stop_time=24)
+dox_pk       = DoxModel(schedule=[dox_schedule])
+
+# CNO PK: 0.03 mg dose at t=48 hr
+cno_dose = Dose(mg=0.03, time=48)
+cno_pk   = CnoModel(doses=[cno_dose])
+
+# Chemogenetic model with custom PK sub-models
+model      = Model(dox_pk_model=dox_pk, cno_pk_model=cno_pk)
+init_state = State()
+solver     = Kvaerno3()
+
+solution = model.solve(0, 96, 1, init_state, solver)
+
+fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+
+axes[0, 0].plot(solution.ts, solution.plasma_rma, "k")
+axes[0, 0].set(ylabel="Plasma RMA (nM)", xlabel="Time (hr)")
+
+axes[0, 1].plot(solution.ts, solution.tta, "k")
+axes[0, 1].set(ylabel="tTA (nM)", xlabel="Time (hr)")
+
+axes[1, 0].plot(solution.ts, solution.brain_dox, "k")
+axes[1, 0].set(ylabel="Brain Dox (nM)", xlabel="Time (hr)")
+
+axes[1, 1].plot(solution.ts, solution.brain_clz, "k")
+axes[1, 1].set(ylabel="Brain CLZ (nM)", xlabel="Time (hr)")
+
+plt.tight_layout()
+plt.show()
+```
+
+## Available Solution fields
+
+The fields available on a `Solution` object depend on which model produced it.
+
+| Field            | Constitutive | TetOff | Chemogenetic |
+| ---------------- | :----------: | :----: | :----------: |
+| `ts`             | ✓            | ✓      | ✓            |
+| `plasma_rma`     | ✓            | ✓      | ✓            |
+| `brain_rma`      | ✓            | ✓      | ✓            |
+| `tta`            |              | ✓      | ✓            |
+| `plasma_dox`     |              | ✓      | ✓            |
+| `brain_dox`      |              | ✓      | ✓            |
+| `dreadd`         |              |        | ✓            |
+| `peritoneal_cno` |              |        | ✓            |
+| `plasma_cno`     |              |        | ✓            |
+| `brain_cno`      |              |        | ✓            |
+| `plasma_clz`     |              |        | ✓            |
+| `brain_clz`      |              |        | ✓            |
+
+Accessing a field that is not available for a given model raises a `ValueError` with a descriptive message.
+
+## Working with numpy arrays
+
+Because all `Solution` fields return `NDArray[float64]`, you can use them directly with any NumPy-compatible library:
+
+```python
+import numpy as np
+import scipy.signal as signal
+
+# Smoothing with scipy
+smoothed = signal.savgol_filter(solution.plasma_rma, window_length=11, polyorder=3)
+
+# Array operations
+peak_idx  = np.argmax(solution.plasma_rma)
+peak_time = solution.ts[peak_idx]
+print(f"Peak plasma RMA at t={peak_time:.1f} hr")
+```
+
+<Tip>
+  Use `solution.elapsed_time()` to measure how long the solver took in seconds. This is useful when benchmarking solver settings or comparing model complexity.
+</Tip>

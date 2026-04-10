@@ -1,0 +1,189 @@
+---
+title: "Chemogenetic RMA Model"
+description: "Simulate DREADD-induced, doxycycline-gated RMA expression for monitoring neuronal activity with eleven tracked compartment species."
+---
+
+The chemogenetic model describes the full genetic circuit for monitoring neuronal activity with synthetic serum reporters ([Lee et al., 2024](https://doi.org/10.1038/s41587-023-02087-x); [Buitrago et al., 2025](https://doi.org/10.1101/2025.11.17.688787)). It combines three coupled sub-systems: a CNO/CLZ pharmacokinetic model that routes intraperitoneal bolus doses through plasma and brain compartments; a DREADD receptor layer that translates brain CNO and CLZ concentrations into tTA expression; and a Tet-Off RMA layer gated by doxycycline. This is the most complex model in the library, tracking eleven species. The stiff coupling between rapid CNO kinetics and slower gene expression kinetics means the diagonally implicit `Kvaerno3` solver is recommended over the explicit `dopri5` solver.
+
+## Model parameters
+
+**RMA expression**
+
+<ParamField path="rma_prod" type="float" default="0.2">
+  Maximum RMA production rate (nM/hr).
+</ParamField>
+
+<ParamField path="leaky_rma_prod" type="float" default="0.002">
+  Basal (leaky) RMA production rate (nM/hr).
+</ParamField>
+
+<ParamField path="rma_bbb_transport" type="float" default="0.6">
+  Blood-brain barrier transport rate for RMA (1/hr).
+</ParamField>
+
+<ParamField path="rma_deg" type="float" default="0.007">
+  RMA degradation rate in plasma (1/hr).
+</ParamField>
+
+**tTA expression**
+
+<ParamField path="tta_prod" type="float" default="10.0">
+  Maximum DREADD-driven tTA production rate (nM/hr).
+</ParamField>
+
+<ParamField path="leaky_tta_prod" type="float" default="0.002">
+  Basal tTA production rate in the absence of DREADD activity (nM/hr).
+</ParamField>
+
+<ParamField path="tta_deg" type="float" default="1.0">
+  tTA degradation rate (1/hr).
+</ParamField>
+
+<ParamField path="tta_kd" type="float" default="10.0">
+  Dissociation constant for tTA binding to the TetO operator (nM).
+</ParamField>
+
+<ParamField path="tta_cooperativity" type="float" default="2.0">
+  Hill cooperativity coefficient for tTA-TetO binding.
+</ParamField>
+
+**Dox gating**
+
+<ParamField path="dox_pk_model" type="dox.Model" default="dox.Model()">
+  Doxycycline PK sub-model. Provide a schedule to suppress tTA activity via dox.
+</ParamField>
+
+<ParamField path="dox_tta_kd" type="float" default="10.0">
+  Dissociation constant for doxycycline-tTA binding (nM).
+</ParamField>
+
+**CNO/CLZ activation**
+
+<ParamField path="cno_pk_model" type="cno.Model" default="cno.Model()">
+  CNO/CLZ pharmacokinetic sub-model. Provide a dosing schedule to simulate DREADD activation.
+</ParamField>
+
+<ParamField path="cno_ec50" type="float" default="1000.0">
+  CNO concentration in brain for half-maximal DREADD activation (nM).
+</ParamField>
+
+<ParamField path="clz_ec50" type="float" default="1000.0">
+  CLZ concentration in brain for half-maximal DREADD activation (nM).
+</ParamField>
+
+<ParamField path="cno_cooperativity" type="float" default="2.0">
+  Hill cooperativity for CNO-DREADD activation.
+</ParamField>
+
+<ParamField path="clz_cooperativity" type="float" default="2.0">
+  Hill cooperativity for CLZ-DREADD activation.
+</ParamField>
+
+**DREADD expression**
+
+<ParamField path="dreadd_prod" type="float" default="0.2">
+  DREADD receptor production rate (nM/hr). DREADD is constitutively expressed.
+</ParamField>
+
+<ParamField path="dreadd_deg" type="float" default="0.007">
+  DREADD receptor degradation rate (1/hr).
+</ParamField>
+
+<ParamField path="dreadd_ec50" type="float" default="1000.0">
+  DREADD concentration for half-maximal tTA induction (nM).
+</ParamField>
+
+<ParamField path="dreadd_cooperativity" type="float" default="2.0">
+  Hill cooperativity for DREADD-tTA activation.
+</ParamField>
+
+## State fields
+
+<ParamField path="brain_rma" type="float" default="0.0">RMA concentration in brain (nM).</ParamField>
+<ParamField path="plasma_rma" type="float" default="0.0">RMA concentration in plasma (nM).</ParamField>
+<ParamField path="tta" type="float" default="0.0">tTA concentration in brain (nM).</ParamField>
+<ParamField path="plasma_dox" type="float" default="0.0">Doxycycline concentration in plasma (nM).</ParamField>
+<ParamField path="brain_dox" type="float" default="0.0">Doxycycline concentration in brain (nM).</ParamField>
+<ParamField path="dreadd" type="float" default="0.0">DREADD receptor concentration in brain (nM).</ParamField>
+<ParamField path="peritoneal_cno" type="float" default="0.0">CNO amount in peritoneal compartment (nmol).</ParamField>
+<ParamField path="plasma_cno" type="float" default="0.0">CNO concentration in plasma (nM).</ParamField>
+<ParamField path="brain_cno" type="float" default="0.0">CNO concentration in brain (nM).</ParamField>
+<ParamField path="plasma_clz" type="float" default="0.0">Clozapine concentration in plasma (nM).</ParamField>
+<ParamField path="brain_clz" type="float" default="0.0">Clozapine concentration in brain (nM).</ParamField>
+
+## Code examples
+
+<Tabs>
+  <Tab title="Python">
+```python
+from rma_kinetics.models.chemogenetic import Model, State
+from rma_kinetics.models.cno import Model as CNOModel, create_cno_schedule
+from rma_kinetics.solvers import Kvaerno3
+
+# Single 0.03 mg CNO bolus at t=0, repeated at t=24 h
+doses = create_cno_schedule(mg=0.03, start_time=0.0, repeat=1, interval=24.0)
+cno_pk = CNOModel(doses=doses)
+
+model = Model(cno_pk_model=cno_pk)
+state = State()
+
+# Use Kvaerno3 for stiff CNO kinetics
+solver = Kvaerno3()
+
+solution = model.solve(0, 72, 1, state, solver)
+
+plasma_rma = solution.plasma_rma  # NDArray[float64]
+brain_cno  = solution.brain_cno   # NDArray[float64]
+brain_clz  = solution.brain_clz   # NDArray[float64]
+dreadd     = solution.dreadd      # NDArray[float64]
+```
+
+```python
+# Combine CNO dosing with dox suppression
+from rma_kinetics.models.dox import Model as DoxModel, create_dox_schedule
+
+dox_schedule = create_dox_schedule(dose=40.0, start_time=0.0, duration=48.0)
+dox_pk = DoxModel(schedule=dox_schedule)
+
+doses = create_cno_schedule(mg=0.03, start_time=48.0)
+cno_pk = CNOModel(doses=doses)
+
+model = Model(dox_pk_model=dox_pk, cno_pk_model=cno_pk)
+solution = model.solve(0, 120, 1, State(), Kvaerno3())
+```
+  </Tab>
+  <Tab title="Rust">
+```rust
+use rma_kinetics::{
+    models::{chemogenetic, cno},
+    Solve,
+};
+use differential_equations::prelude::DiagonallyImplicitRungeKutta;
+
+let dose = cno::Dose::new(0.03, 0.);
+let cno_pk = cno::Model::builder()
+    .doses(vec![dose])
+    .build()?;
+
+let model = chemogenetic::Model::builder()
+    .cno_pk_model(cno_pk)
+    .build()?;
+
+let init_state = chemogenetic::State::zeros();
+
+// Kvaerno423 (DIRK) handles the stiff CNO kinetics
+let mut solver = DiagonallyImplicitRungeKutta::kvaerno423();
+
+let solution = model.solve(0., 72., 1., init_state, &mut solver)?;
+println!("Peak plasma RMA: {:.3}", solution.max_plasma_rma()?.1);
+```
+  </Tab>
+</Tabs>
+
+<Warning>
+The chemogenetic model couples fast CNO absorption kinetics with slow gene expression dynamics, making it stiff. Use the `Kvaerno3` solver (`Kvaerno3()` in Python, `DiagonallyImplicitRungeKutta::kvaerno423()` in Rust) to avoid step-size failures or incorrect trajectories with explicit solvers.
+</Warning>
+
+<Note>
+This model embeds both the dox PK sub-model and the CNO PK sub-model. See [Pharmacokinetics](/models/pharmacokinetics) for documentation on configuring dosing schedules for each sub-model.
+</Note>

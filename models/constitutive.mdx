@@ -1,0 +1,107 @@
+---
+title: "Constitutive RMA Model"
+description: "Simulate continuous, drug-independent RMA expression in brain tissue with blood-brain barrier transport to the systemic plasma compartment."
+---
+
+The constitutive model is the simplest RMA kinetic model. It describes a synthetic serum reporter that is expressed continuously at a constant rate from a constitutive promoter — no drug modulation, no inducible elements. Reporter transcription, translation, and secretion are consolidated into a single production term. Transport from brain to plasma is mediated by Fc receptor-mediated reverse transcytosis across the blood-brain barrier, and protein degradation in plasma is the primary clearance route. The default parameters are calibrated to human-synapsin-promoter-driven expression in CA1 hippocampus.
+
+## Model parameters
+
+<ParamField path="prod" type="float" default="0.2">
+  RMA production rate in brain tissue (nM/hr). Consolidates transcription, translation, and secretion.
+</ParamField>
+
+<ParamField path="bbb_transport" type="float" default="0.6">
+  Blood-brain barrier transport rate (1/hr). Governs Fc receptor-mediated efflux from brain to plasma.
+</ParamField>
+
+<ParamField path="deg" type="float" default="0.007">
+  RMA degradation rate in plasma (1/hr). Represents protein turnover; cell-division dilution is assumed negligible for neurons.
+</ParamField>
+
+## State fields
+
+<ParamField path="brain_rma" type="float" default="0.0">
+  RMA concentration in brain tissue (nM).
+</ParamField>
+
+<ParamField path="plasma_rma" type="float" default="0.0">
+  RMA concentration in plasma (nM).
+</ParamField>
+
+## Solving
+
+Call `model.solve(t0, tf, dt, init_state, solver)` to integrate the system. The method returns a `Solution` object from which individual species time-series can be retrieved.
+
+| Parameter   | Type     | Description                                |
+|-------------|----------|--------------------------------------------|
+| `t0`        | `float`  | Start time (hr)                            |
+| `tf`        | `float`  | End time (hr)                              |
+| `dt`        | `float`  | Output time step (hr)                      |
+| `init_state`| `State`  | Initial species concentrations             |
+| `solver`    | `Solver` | Numerical ODE solver to use                |
+
+## Code examples
+
+<Tabs>
+  <Tab title="Python">
+```python
+from rma_kinetics.models.constitutive import Model, State
+from rma_kinetics.solvers import Dopri5
+
+# Default parameters (CA1 hippocampus, hSyn promoter)
+model = Model()
+state = State()
+solver = Dopri5()
+
+solution = model.solve(0, 504, 1, state, solver)
+
+brain = solution.brain_rma    # NDArray[float64]
+plasma = solution.plasma_rma  # NDArray[float64]
+print(f"Peak plasma RMA: {plasma.max():.3f} nM")
+```
+
+```python
+# Custom kinetic rates
+model = Model(prod=0.5, bbb_transport=0.7, deg=0.005)
+state = State(brain_rma=0.0, plasma_rma=0.0)
+solution = model.solve(0, 504, 1, state, Dopri5())
+```
+  </Tab>
+  <Tab title="Rust">
+```rust
+use rma_kinetics::{models::constitutive, Solve};
+use differential_equations::methods::ExplicitRungeKutta;
+
+// Default parameters
+let model = constitutive::Model::default();
+let init_state = constitutive::State::zeros();
+let mut solver = ExplicitRungeKutta::dopri5();
+
+let solution = model.solve(0., 504., 1., init_state, &mut solver).unwrap();
+println!("{:?}", solution.y);
+```
+
+```rust
+// Builder pattern — override individual parameters
+let model = constitutive::Model::builder()
+    .prod(0.5)
+    .bbb_transport(0.7)
+    .build()?;
+
+let mut solver = ExplicitRungeKutta::dopri5();
+let solution = model.solve(0., 504., 1., constitutive::State::zeros(), &mut solver)?;
+```
+  </Tab>
+</Tabs>
+
+## ODE system
+
+The model integrates the following two-compartment system:
+
+```
+d(brain_rma)/dt = prod - bbb_transport × brain_rma
+d(plasma_rma)/dt = bbb_transport × brain_rma - deg × plasma_rma
+```
+
+At steady state, `brain_rma = prod / bbb_transport` and `plasma_rma = prod / deg`.

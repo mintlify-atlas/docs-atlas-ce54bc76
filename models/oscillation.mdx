@@ -1,0 +1,116 @@
+---
+title: "Oscillating RMA Model"
+description: "Simulate sinusoidally varying RMA brain expression as a proxy for rapidly changing gene activity, with optional stochastic plasma noise."
+---
+
+The oscillation model describes the expression of a synthetic serum reporter whose brain production rate follows a sine wave pattern over time. This makes it a useful proxy for studying how rapidly changing gene expression programs — such as circadian rhythms or activity-dependent bursts — are reflected in serum RMA concentrations. The model tracks the same two compartments as the constitutive model (`brain_rma` and `plasma_rma`) but adds an oscillation frequency parameter. After solving, you can inject additive Gaussian noise into the plasma RMA time-series via `apply_noise()` to simulate measurement variability.
+
+## Model parameters
+
+<ParamField path="prod" type="float" default="0.2">
+  Base RMA production rate (nM/hr). Actual production oscillates around this value as `prod × (1 + sin(2π × freq × t))`.
+</ParamField>
+
+<ParamField path="freq" type="float" default="0.01">
+  Oscillation frequency (Hz). At the default of 0.01 Hz the period is 100 hours.
+</ParamField>
+
+<ParamField path="bbb_transport" type="float" default="0.6">
+  Blood-brain barrier transport rate for RMA (1/hr).
+</ParamField>
+
+<ParamField path="deg" type="float" default="0.007">
+  RMA degradation rate in plasma (1/hr).
+</ParamField>
+
+## State fields
+
+<ParamField path="brain_rma" type="float" default="0.0">
+  RMA concentration in brain tissue (nM).
+</ParamField>
+
+<ParamField path="plasma_rma" type="float" default="0.0">
+  RMA concentration in plasma (nM).
+</ParamField>
+
+## Noise injection
+
+After solving, call `solution.apply_noise(strength)` to add independent Gaussian samples (mean 0, standard deviation `strength`) to each plasma RMA time point. This simulates biological or assay measurement noise on the plasma readout.
+
+| Parameter  | Type    | Description                                                     |
+|------------|---------|-----------------------------------------------------------------|
+| `strength` | `float` | Standard deviation of the Gaussian noise added to `plasma_rma` |
+
+<Warning>
+`apply_noise()` modifies the solution in place. Call it only once, or re-solve the model to obtain a clean trajectory.
+</Warning>
+
+## Code examples
+
+<Tabs>
+  <Tab title="Python">
+```python
+from rma_kinetics.models.oscillation import Model, State
+from rma_kinetics.solvers import Dopri5
+
+model = Model(prod=0.2, freq=0.01)
+state = State()
+solver = Dopri5()
+
+solution = model.solve(0, 504, 1, state, solver)
+
+plasma = solution.plasma_rma  # NDArray[float64]
+print(f"Peak: {plasma.max():.3f} nM, Trough: {plasma.min():.3f} nM")
+
+# Inject measurement noise (std = 0.05 nM)
+solution.apply_noise(0.05)
+noisy_plasma = solution.plasma_rma  # now contains noisy values
+```
+
+```python
+# Higher frequency oscillation
+model = Model(prod=0.3, freq=0.02, bbb_transport=0.6, deg=0.007)
+solution = model.solve(0, 504, 1, State(), Dopri5())
+```
+  </Tab>
+  <Tab title="Rust">
+```rust
+use rma_kinetics::{models::oscillation, solve::ApplyNoise, Solve};
+use differential_equations::methods::ExplicitRungeKutta;
+
+let model = oscillation::Model::default();
+let init_state = oscillation::State::zeros();
+let mut solver = ExplicitRungeKutta::dopri5();
+
+let mut solution = model.solve(0., 504., 1., init_state, &mut solver).unwrap();
+println!("{:?}", solution.y);
+
+// Inject Gaussian noise with strength 0.05
+solution.apply_noise(0.05);
+```
+
+```rust
+// Custom frequency via builder
+let model = oscillation::Model::builder()
+    .prod(0.3)
+    .freq(0.02)
+    .build()?;
+
+let mut solver = ExplicitRungeKutta::dopri5();
+let solution = model.solve(0., 504., 1., oscillation::State::zeros(), &mut solver)?;
+```
+  </Tab>
+</Tabs>
+
+## ODE system
+
+The production term varies sinusoidally with time:
+
+```
+production(t) = prod × (1 + sin(2π × freq × t))
+
+d(brain_rma)/dt  = production(t) - bbb_transport × brain_rma
+d(plasma_rma)/dt = bbb_transport × brain_rma - deg × plasma_rma
+```
+
+The production term ranges from `0` to `2 × prod` with a mean of `prod`, matching the constitutive steady-state baseline.

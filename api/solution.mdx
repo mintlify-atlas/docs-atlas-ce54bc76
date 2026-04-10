@@ -1,0 +1,145 @@
+---
+title: "Solution — Accessing Simulation Results"
+description: "Reference for the Python Solution class returned by model.solve(). Covers all species array properties, model availability, and noise injection."
+---
+
+Every call to `model.solve()` returns a `Solution` object containing the integrated time points and per-species concentration arrays for that model. Not all properties are present on every model type — accessing a property that is unavailable for the current model raises a `ValueError`.
+
+<Warning>
+  Accessing a property that is not defined for the current model raises a `ValueError`. For example, calling `.dreadd` on a constitutive model solution will raise `ValueError: dreadd is not available for the constitutive model`.
+</Warning>
+
+## Properties
+
+<ResponseField name="ts" type="NDArray[float64]">
+  The time points at which the solution was evaluated. Available for all models.
+</ResponseField>
+
+<ResponseField name="plasma_rma" type="NDArray[float64]">
+  Plasma RMA concentration over time. Available for the `constitutive`, `tetoff`, `chemogenetic`, and `oscillation` models.
+</ResponseField>
+
+<ResponseField name="brain_rma" type="NDArray[float64]">
+  Brain RMA concentration over time. Available for the `constitutive`, `tetoff`, `chemogenetic`, and `oscillation` models.
+</ResponseField>
+
+<ResponseField name="tta" type="NDArray[float64]">
+  Tet-transactivator (tTA) concentration over time. Available for the `tetoff` and `chemogenetic` models.
+</ResponseField>
+
+<ResponseField name="plasma_dox" type="NDArray[float64]">
+  Plasma doxycycline concentration over time. Available for the `dox`, `tetoff`, and `chemogenetic` models.
+</ResponseField>
+
+<ResponseField name="brain_dox" type="NDArray[float64]">
+  Brain doxycycline concentration over time. Available for the `dox`, `tetoff`, and `chemogenetic` models.
+</ResponseField>
+
+<ResponseField name="dreadd" type="NDArray[float64]">
+  DREADD receptor concentration over time. Available for the `chemogenetic` model only.
+</ResponseField>
+
+<ResponseField name="peritoneal_cno" type="NDArray[float64]">
+  Peritoneal clozapine-N-oxide (CNO) amount over time (in nmol). Available for the `cno` and `chemogenetic` models.
+</ResponseField>
+
+<ResponseField name="plasma_cno" type="NDArray[float64]">
+  Plasma CNO concentration over time. Available for the `cno` and `chemogenetic` models.
+</ResponseField>
+
+<ResponseField name="brain_cno" type="NDArray[float64]">
+  Brain CNO concentration over time. Available for the `cno` and `chemogenetic` models.
+</ResponseField>
+
+<ResponseField name="plasma_clz" type="NDArray[float64]">
+  Plasma clozapine concentration over time. Available for the `cno` and `chemogenetic` models.
+</ResponseField>
+
+<ResponseField name="brain_clz" type="NDArray[float64]">
+  Brain clozapine concentration over time. Available for the `cno` and `chemogenetic` models.
+</ResponseField>
+
+## Methods
+
+<ResponseField name="elapsed_time()" type="float">
+  Returns the wall-clock time in seconds taken to compute the solution. Available for all models.
+</ResponseField>
+
+<ResponseField name="apply_noise(scale: float)" type="None">
+  Applies standard normal noise of the given scale to the plasma RMA array, modifying it in place. Available for the `oscillation` model only. Calling this on any other model type raises a `ValueError`.
+</ResponseField>
+
+## Model availability summary
+
+| Property | constitutive | dox | tetoff | cno | chemogenetic | oscillation |
+|---|---|---|---|---|---|---|
+| `ts` | yes | yes | yes | yes | yes | yes |
+| `plasma_rma` | yes | — | yes | — | yes | yes |
+| `brain_rma` | yes | — | yes | — | yes | yes |
+| `tta` | — | — | yes | — | yes | — |
+| `plasma_dox` | — | yes | yes | — | yes | — |
+| `brain_dox` | — | yes | yes | — | yes | — |
+| `dreadd` | — | — | — | — | yes | — |
+| `peritoneal_cno` | — | — | — | yes | yes | — |
+| `plasma_cno` | — | — | — | yes | yes | — |
+| `brain_cno` | — | — | — | yes | yes | — |
+| `plasma_clz` | — | — | — | yes | yes | — |
+| `brain_clz` | — | — | — | yes | yes | — |
+| `elapsed_time()` | yes | yes | yes | yes | yes | yes |
+| `apply_noise()` | — | — | — | — | — | yes |
+
+## Example
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+from rma_kinetics.models import constitutive
+from rma_kinetics.solvers import Dopri5
+
+model = constitutive.Model()
+state = constitutive.State()
+solver = Dopri5()
+
+solution = model.solve(t0=0.0, tf=100.0, dt=1.0, init_state=state, solver=solver)
+
+# Access time and concentration arrays
+ts = solution.ts
+plasma = solution.plasma_rma
+brain = solution.brain_rma
+
+print(f"Solved in {solution.elapsed_time():.4f} seconds")
+print(f"Time points: {ts.shape[0]}")
+print(f"Peak plasma RMA: {np.max(plasma):.4f} at t={ts[np.argmax(plasma)]:.1f}")
+
+# Plot with matplotlib
+fig, ax = plt.subplots()
+ax.plot(ts, plasma, label="Plasma RMA")
+ax.plot(ts, brain, label="Brain RMA")
+ax.set_xlabel("Time")
+ax.set_ylabel("Concentration")
+ax.legend()
+plt.show()
+```
+
+### Oscillation model with noise
+
+```python
+from rma_kinetics.models import oscillation
+from rma_kinetics.solvers import Dopri5
+
+model = oscillation.Model()
+state = oscillation.State()
+solver = Dopri5()
+
+solution = model.solve(t0=0.0, tf=200.0, dt=1.0, init_state=state, solver=solver)
+
+# Add measurement noise to the plasma RMA array in-place
+solution.apply_noise(scale=0.05)
+
+noisy_plasma = solution.plasma_rma
+```
+
+## Rust equivalent
+
+In Rust, `model.solve()` returns `Solution<f64, State>` from the `differential_equations` crate, where the `y` field is a `Vec<State>` containing the per-step state structs. Use the `SolutionAccess` trait to extract species vectors by name, or access fields on the state structs directly. See the [Rust API reference](/api/rust) for details.

@@ -1,0 +1,207 @@
+---
+title: "Rust API Reference"
+description: "Public traits and error types for the rma-kinetics Rust crate: Solve, StochasticSolve, SolutionAccess, ApplyNoise, ToDataFrame, and SpeciesAccessError."
+---
+
+The `rma-kinetics` crate exposes a set of traits that model structs implement to provide a uniform solve interface. The returned `Solution<f64, State>` type comes from the [`differential_equations`](https://github.com/Ryan-D-Gast/differential-equations) crate, and species data is accessed through the `SolutionAccess` trait. Optional features enable Python bindings and Polars DataFrame conversion.
+
+## Adding the crate
+
+```toml
+[dependencies]
+rma-kinetics = "0.1"
+differential-equations = "0.5"
+```
+
+### Feature flags
+
+<ResponseField name="py" type="feature flag">
+  Enables Python bindings via PyO3 and numpy. Required when building the Python extension module. Activates `PySolve`, `PyStochasticSolve`, and the `PySolution` class.
+</ResponseField>
+
+<ResponseField name="polars-native" type="feature flag">
+  Enables the `ToDataFrame` trait using Polars with terminal-formatted output (`polars/fmt`). Use this for native desktop and server targets.
+</ResponseField>
+
+<ResponseField name="polars-wasm" type="feature flag">
+  Enables the `ToDataFrame` trait using Polars with TTY-free output (`polars/fmt_no_tty`). Use this when targeting WebAssembly.
+</ResponseField>
+
+```toml
+# Native target with Polars support
+[dependencies]
+rma-kinetics = { version = "0.1", features = ["polars-native"] }
+differential-equations = "0.5"
+
+# WebAssembly target with Polars support
+[dependencies]
+rma-kinetics = { version = "0.1", features = ["polars-wasm"] }
+differential-equations = "0.5"
+```
+
+## Traits
+
+### `Solve`
+
+Implemented by deterministic ODE model structs. Takes an immutable reference to `self` because the model parameters do not change during integration.
+
+```rust
+pub trait Solve {
+    type State: traits::State<f64>;
+
+    fn solve<S>(
+        &self,
+        t0: f64,
+        tf: f64,
+        dt: f64,
+        init_state: Self::State,
+        solver: &mut S,
+    ) -> Result<Solution<f64, Self::State>, Error<f64, Self::State>>
+    where
+        S: OrdinaryNumericalMethod<f64, Self::State> + Interpolation<f64, Self::State>;
+}
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `t0` | `f64` | Start time of the integration. |
+| `tf` | `f64` | End time of the integration. |
+| `dt` | `f64` | Nominal output step size (dense output interval). |
+| `init_state` | `Self::State` | Initial state vector. |
+| `solver` | `&mut S` | Mutable reference to an ODE solver from `differential_equations`. |
+
+### `StochasticSolve`
+
+Implemented by stochastic SDE model structs. Takes `&mut self` because SDE models hold internal mutable state such as a random number generator that is updated during integration.
+
+```rust
+pub trait StochasticSolve {
+    type State: traits::State<f64>;
+
+    fn solve<S>(
+        &mut self,
+        t0: f64,
+        tf: f64,
+        dt: f64,
+        init_state: Self::State,
+        solver: &mut S,
+    ) -> Result<Solution<f64, Self::State>, Error<f64, Self::State>>
+    where
+        S: StochasticNumericalMethod<f64, Self::State> + Interpolation<f64, Self::State>;
+}
+```
+
+### `SolutionAccess`
+
+Provides named accessors for species concentration vectors. Each method returns `Result<Vec<f64>, SpeciesAccessError>` — if the species is not present in the model's `State` type, the method returns the corresponding `SpeciesAccessError` variant.
+
+```rust
+pub trait SolutionAccess {
+    fn brain_rma(&self)       -> Result<Vec<f64>, SpeciesAccessError>;
+    fn plasma_rma(&self)      -> Result<Vec<f64>, SpeciesAccessError>;
+    fn tta(&self)             -> Result<Vec<f64>, SpeciesAccessError>;
+    fn plasma_dox(&self)      -> Result<Vec<f64>, SpeciesAccessError>;
+    fn brain_dox(&self)       -> Result<Vec<f64>, SpeciesAccessError>;
+    fn dreadd(&self)          -> Result<Vec<f64>, SpeciesAccessError>;
+    fn peritoneal_cno(&self)  -> Result<Vec<f64>, SpeciesAccessError>;
+    fn plasma_cno(&self)      -> Result<Vec<f64>, SpeciesAccessError>;
+    fn brain_cno(&self)       -> Result<Vec<f64>, SpeciesAccessError>;
+    fn plasma_clz(&self)      -> Result<Vec<f64>, SpeciesAccessError>;
+    fn brain_clz(&self)       -> Result<Vec<f64>, SpeciesAccessError>;
+}
+```
+
+Each accessor also has a corresponding `max_*` method (e.g., `max_brain_rma`) that returns `Result<(f64, f64), SpeciesAccessError>` — the tuple contains `(time_of_max, max_value)`.
+
+### `ApplyNoise`
+
+Implemented by solution types that support in-place noise injection. Currently used by the oscillation model solution.
+
+```rust
+pub trait ApplyNoise {
+    fn apply_noise(&mut self, strength: f64);
+}
+```
+
+### `ToDataFrame`
+
+Available when the `polars-native` or `polars-wasm` feature is enabled. Converts a solution into a `polars::frame::DataFrame` with a `"time"` column and one column per state field.
+
+```rust
+pub trait ToDataFrame {
+    fn to_dataframe(self) -> Result<polars::frame::DataFrame, polars::error::PolarsError>;
+}
+```
+
+## `SpeciesAccessError`
+
+Returned by `SolutionAccess` methods when the requested species is not part of the current model's state. Each variant includes a human-readable message via `Display`.
+
+| Variant | Message |
+|---|---|
+| `NoBrainRMA` | Brain RMA is not available in this model |
+| `NoPlasmaRMA` | Plasma RMA is not available in this model |
+| `NoTta` | tTA is not available in this model |
+| `NoPlasmaDox` | Plasma doxycycline is not available in this model |
+| `NoBrainDox` | Brain doxycycline is not available in this model |
+| `NoDreadd` | DREADD is not available in this model |
+| `NoPeritonealCno` | Peritoneal CNO is not available in this model |
+| `NoPlasmaCno` | Plasma CNO is not available in this model |
+| `NoBrainCno` | Brain CNO is not available in this model |
+| `NoPlasmaClz` | Plasma clozapine is not available in this model |
+| `NoBrainClz` | Brain clozapine is not available in this model |
+
+## Complete example
+
+The following example solves the constitutive model and reads back the brain and plasma RMA vectors.
+
+```rust
+use rma_kinetics::{models::constitutive, Solve, SolutionAccess};
+use differential_equations::methods::ExplicitRungeKutta;
+
+fn main() {
+    let model = constitutive::Model::default();
+    let init_state = constitutive::State::zeros();
+    let mut solver = ExplicitRungeKutta::dopri5();
+
+    let solution = model
+        .solve(0.0, 100.0, 1.0, init_state, &mut solver)
+        .expect("integration failed");
+
+    let brain_rma = solution.brain_rma().expect("brain RMA not available");
+    let plasma_rma = solution.plasma_rma().expect("plasma RMA not available");
+
+    let (t_peak, peak) = solution.max_brain_rma().unwrap();
+    println!("Peak brain RMA: {peak:.4} at t={t_peak:.1}");
+    println!("Time points: {}", solution.t.len());
+    println!("Brain RMA length: {}", brain_rma.len());
+    println!("Plasma RMA length: {}", plasma_rma.len());
+}
+```
+
+### With Polars DataFrame output
+
+```toml
+# Cargo.toml
+[dependencies]
+rma-kinetics = { version = "0.1", features = ["polars-native"] }
+differential-equations = "0.1"
+```
+
+```rust
+use rma_kinetics::{models::constitutive, Solve, ToDataFrame};
+use differential_equations::methods::ExplicitRungeKutta;
+
+fn main() {
+    let model = constitutive::Model::default();
+    let init_state = constitutive::State::zeros();
+    let mut solver = ExplicitRungeKutta::dopri5();
+
+    let solution = model
+        .solve(0.0, 100.0, 1.0, init_state, &mut solver)
+        .expect("integration failed");
+
+    let df = solution.to_dataframe().expect("DataFrame conversion failed");
+    println!("{df}");
+}
+```

@@ -1,80 +1,169 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Get started with RMA Kinetics"
+description: "Install the RMA Kinetics library and run your first kinetic simulation using the constitutive model with a Dormand-Prince solver in Python or Rust."
 ---
 
-## Get started in three steps
+RMA Kinetics is available as a Rust crate on crates.io and as a Python package built via maturin. Follow the steps below to install the library, create a model, and run a simulation over a time span of your choice.
 
-Get your documentation site running locally and make your first customization.
+<Steps>
+  <Step title="Install the library">
+    Choose your language to get the installation command.
 
-### Step 1: Set up your local environment
+    <Tabs>
+      <Tab title="Python">
+        The Python bindings are built from source using [maturin](https://www.maturin.rs/). Clone the repository, create a virtual environment, and build the package in development mode:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+        ```bash
+        git clone https://github.com/nsbuitrago/rma-kinetics-rs
+        cd rma-kinetics-rs
+        uv venv
+        uvx maturin develop --uv --features py -m crates/rma-kinetics/Cargo.toml
+        ```
 
-### Step 2: Deploy your changes
+        <Note>
+          The Python package on PyPI (`rma-kinetics`) uses an older pure-Python implementation. The commands above build the current Rust-backed bindings locally. A Rust toolchain must be installed before running `maturin develop`. See the [Rust installation guide](https://www.rust-lang.org/tools/install) if needed.
+        </Note>
+      </Tab>
+      <Tab title="Rust">
+        The `rma_kinetics` crate is published on [crates.io](https://crates.io/crates/rma-kinetics). Add it to your project with cargo:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+        ```bash
+        cargo add rma_kinetics
+        ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+        Or add it manually to your `Cargo.toml`:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+        ```toml
+        [dependencies]
+        rma_kinetics = "0.1.1"
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Import the model and solver">
+    Each model lives in its own submodule. For a constitutive model, import `Model` and `State` from the `constitutive` submodule, and choose a solver.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    <CodeGroup>
+
+    ```python python
+    from rma_kinetics.models.constitutive import Model, State
+    from rma_kinetics.solvers import Dopri5
+    ```
+
+    ```rust rust
+    use rma_kinetics::models::constitutive::{Model, State};
+    use rma_kinetics::Solve;
+    use differential_equations::methods::ExplicitRungeKutta;
+    ```
+
+    </CodeGroup>
+
+    <Tip>
+      `Dopri5` in Python and `ExplicitRungeKutta::dopri5()` in Rust both use the Dormand-Prince 5(4) explicit Runge-Kutta method, which is a good general-purpose adaptive solver for these ODE systems.
+    </Tip>
+  </Step>
+
+  <Step title="Create a model and initial state">
+    Construct a `Model` and an initial `State`. Both use sensible defaults — the default constitutive model parameters reflect RMA expression in the CA1 region of the hippocampus under a human-synapsin promoter, and the default initial state sets both `brain_rma` and `plasma_rma` to zero.
+
+    <CodeGroup>
+
+    ```python python
+    model = Model()
+    # Or with explicit parameters:
+    # model = Model(prod=0.2, bbb_transport=0.6, deg=0.007)
+
+    init_state = State()
+    # Or with non-zero initial conditions:
+    # init_state = State(brain_rma=0.0, plasma_rma=0.0)
+
+    solver = Dopri5()
+    ```
+
+    ```rust rust
+    let model = Model::default();
+    let init_state = State::zeros();
+    let mut solver = ExplicitRungeKutta::dopri5();
+    ```
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Run the simulation">
+    Call `solve` with a start time `t0`, end time `tf`, step size `dt`, the initial state, and the solver. The method returns a `Solution` object containing the time series for all species.
+
+    <CodeGroup>
+
+    ```python python
+    t0 = 0
+    tf = 100
+    dt = 1
+
+    solution = model.solve(t0, tf, dt, init_state, solver)
+    ```
+
+    ```rust rust
+    let t0 = 0.;
+    let tf = 100.;
+    let dt = 1.;
+
+    let solution = model.solve(t0, tf, dt, init_state, &mut solver);
+    assert!(solution.is_ok());
+    let solution = solution.unwrap();
+    ```
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Access the results">
+    Extract concentration time series from the returned `Solution`. In Python, `Solution` fields are NumPy arrays. In Rust, `solution.y` is a `Vec` of `State` structs that you map over to extract individual fields.
+
+    <CodeGroup>
+
+    ```python python
+    plasma_rma = solution.plasma_rma  # numpy array of plasma RMA over time
+    brain_rma = solution.brain_rma    # numpy array of brain RMA over time
+    ts = solution.ts                  # numpy array of time points
+
+    print(f"Final plasma RMA: {plasma_rma[-1]:.4f}")
+    print(f"Final brain RMA:  {brain_rma[-1]:.4f}")
+    ```
+
+    ```rust rust
+    let plasma_rma: Vec<f64> = solution.y
+        .iter()
+        .map(|state| state.plasma_rma)
+        .collect();
+
+    let brain_rma: Vec<f64> = solution.y
+        .iter()
+        .map(|state| state.brain_rma)
+        .collect();
+
+    let ts = &solution.t;
+
+    println!("Final plasma RMA: {:.4}", plasma_rma.last().unwrap());
+    println!("Final brain RMA:  {:.4}", brain_rma.last().unwrap());
+    ```
+
+    </CodeGroup>
+  </Step>
+</Steps>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Models overview" icon="flask" href="/models/overview">
+    Learn about all four RMA models and when to use each one.
+  </Card>
+  <Card title="Solvers" icon="sliders" href="/api/solvers">
+    See all available solvers, including implicit methods for stiff systems.
+  </Card>
+  <Card title="Python usage guide" icon="python" href="/guides/python-usage">
+    Deeper examples using the Python API, including stochastic simulation.
+  </Card>
+  <Card title="Rust usage guide" icon="gear" href="/guides/rust-usage">
+    Use the `rma_kinetics` crate in a Rust project with full type safety.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

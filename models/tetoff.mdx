@@ -1,0 +1,138 @@
+---
+title: "Tet-Off RMA Model"
+description: "Simulate doxycycline-suppressible RMA expression under the tetracycline responsive element, tracking tTA, brain dox, and plasma dox dynamics."
+---
+
+The Tet-Off model describes a synthetic serum reporter whose expression is driven by the tetracycline transactivator (tTA). When doxycycline (dox) is present in the brain, it binds tTA and prevents it from activating the tetracycline-responsive promoter, suppressing RMA production. Removing dox restores expression. This model embeds a doxycycline pharmacokinetic (PK) sub-model to simulate how oral dox administration propagates from the gut through plasma and into the brain. See [Pharmacokinetics](/models/pharmacokinetics) for details on the dox PK sub-model and dosing schedule helpers.
+
+## Model parameters
+
+<ParamField path="rma_prod" type="float" default="0.2">
+  Maximum RMA production rate when tTA is fully active (nM/hr).
+</ParamField>
+
+<ParamField path="leaky_rma_prod" type="float" default="0.002">
+  Basal (leaky) RMA production rate in the absence of tTA activity (nM/hr).
+</ParamField>
+
+<ParamField path="rma_bbb_transport" type="float" default="0.6">
+  Blood-brain barrier transport rate for RMA (1/hr).
+</ParamField>
+
+<ParamField path="rma_deg" type="float" default="0.007">
+  RMA degradation rate in plasma (1/hr).
+</ParamField>
+
+<ParamField path="tta_prod" type="float" default="10.0">
+  tTA production rate (nM/hr). tTA is constitutively expressed.
+</ParamField>
+
+<ParamField path="tta_deg" type="float" default="1.0">
+  tTA degradation rate (1/hr).
+</ParamField>
+
+<ParamField path="tta_kd" type="float" default="10.0">
+  Dissociation constant for tTA binding to the TetO operator (nM). Controls the concentration of tTA required for half-maximal activation.
+</ParamField>
+
+<ParamField path="tta_cooperativity" type="float" default="2.0">
+  Hill cooperativity coefficient for tTA-TetO binding.
+</ParamField>
+
+<ParamField path="dox_pk_model" type="dox.Model" default="dox.Model()">
+  Doxycycline pharmacokinetic sub-model. Supply a configured `dox.Model` with a dosing schedule to simulate dox suppression. Defaults to a model with no scheduled administration.
+</ParamField>
+
+<ParamField path="dox_tta_kd" type="float" default="10.0">
+  Dissociation constant for doxycycline binding to tTA (nM). Controls how much brain dox is needed to inhibit half the available tTA.
+</ParamField>
+
+## State fields
+
+<ParamField path="brain_rma" type="float" default="0.0">
+  RMA concentration in brain tissue (nM).
+</ParamField>
+
+<ParamField path="plasma_rma" type="float" default="0.0">
+  RMA concentration in plasma (nM).
+</ParamField>
+
+<ParamField path="tta" type="float" default="0.0">
+  tTA transcription factor concentration in brain (nM).
+</ParamField>
+
+<ParamField path="brain_dox" type="float" default="0.0">
+  Doxycycline concentration in brain (nM).
+</ParamField>
+
+<ParamField path="plasma_dox" type="float" default="0.0">
+  Doxycycline concentration in plasma (nM).
+</ParamField>
+
+## Code examples
+
+<Tabs>
+  <Tab title="Python">
+```python
+from rma_kinetics.models.tetoff import Model, State
+from rma_kinetics.models.dox import Model as DoxModel, create_dox_schedule
+from rma_kinetics.solvers import Dopri5
+
+# Build a dox schedule: 40 mg/kg chow for 48 h starting at t=0,
+# then repeated once after a 24 h washout gap
+schedule = create_dox_schedule(
+    dose=40.0,
+    start_time=0.0,
+    duration=48.0,
+    repeat=1,
+    interval=24.0,
+)
+dox_pk = DoxModel(schedule=schedule)
+
+model = Model(dox_pk_model=dox_pk)
+state = State()
+solver = Dopri5()
+
+solution = model.solve(0, 240, 1, state, solver)
+
+plasma_rma = solution.plasma_rma  # NDArray[float64]
+plasma_dox = solution.plasma_dox  # NDArray[float64]
+tta        = solution.tta         # NDArray[float64]
+```
+
+```python
+# Without dox suppression — baseline Tet-Off expression
+model = Model()
+solution = model.solve(0, 504, 1, State(), Dopri5())
+```
+  </Tab>
+  <Tab title="Rust">
+```rust
+use rma_kinetics::{
+    models::{tetoff, dox::{self, AccessPeriod}},
+    Solve,
+};
+use differential_equations::methods::ExplicitRungeKutta;
+
+// 48-hour dox access period starting at t=0
+let access = AccessPeriod::new(40., 0.0..=48.);
+let dox_model = dox::Model::builder()
+    .schedule(vec![access])
+    .build()?;
+
+let model = tetoff::Model::builder()
+    .dox_pk_model(dox_model)
+    .build()?;
+
+let init_state = tetoff::State::zeros();
+let mut solver = ExplicitRungeKutta::dopri5();
+
+let solution = model.solve(0., 240., 1., init_state, &mut solver)?;
+println!("Final plasma RMA: {:.3}", solution.y.last().unwrap().plasma_rma);
+```
+  </Tab>
+</Tabs>
+
+<Note>
+The dox PK sub-model uses an oral administration schedule defined by `AccessPeriod` objects (Rust) or `create_dox_schedule()` (Python). An empty schedule means no dox is administered and the reporter expresses at the full rate determined by tTA. See [Pharmacokinetics](/models/pharmacokinetics) for the complete dox PK API.
+</Note>

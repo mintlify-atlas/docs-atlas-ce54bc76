@@ -1,97 +1,77 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "RMA Kinetics: Synthetic Serum Reporter Models"
+description: "A Rust and Python library of kinetic models for Released Markers of Activity (RMAs), synthetic serum reporters for in vivo gene expression monitoring."
 ---
 
-## Setting up
+RMA Kinetics provides fast, accurate kinetic simulations of Released Markers of Activity — synthetic serum reporters that let researchers monitor gene expression non-invasively through blood samples. The core library is written in Rust for maximum performance, with ergonomic Python bindings for integration with scientific computing workflows.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first RMA kinetic simulation in minutes with Python or Rust.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Model Overview" icon="flask" href="/models/overview">
+    Explore the four core RMA models: Constitutive, Tet-Off, Chemogenetic, and Oscillating.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Python API" icon="python" href="/guides/python-usage">
+    Use numpy-compatible Solution objects and ergonomic Python bindings for analysis.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Rust API" icon="gear" href="/guides/rust-usage">
+    Integrate the high-performance Rust library directly into your Rust projects.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What are RMAs?
 
-Everything you need to create world-class documentation.
+Released Markers of Activity (RMAs) are synthetic serum reporters expressed in specific cell populations. When those cells are active, they secrete a detectable protein into the bloodstream. By measuring RMA concentration in a blood sample, researchers can infer underlying neural or cellular activity — without invasive procedures.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+RMA Kinetics models the full pharmacokinetic trajectory of these reporters: from gene expression in the brain, through the blood-brain barrier, into the plasma. Models include effects of doxycycline-controlled gene silencing and chemogenetic (DREADD) induction.
 
-## Need inspiration?
+## Available models
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Constitutive" icon="infinity" href="/models/constitutive">
+    Continuous RMA expression from a constitutive promoter. Baseline model for steady-state analysis.
+  </Card>
+  <Card title="Tet-Off" icon="toggle-off" href="/models/tetoff">
+    Doxycycline-suppressible expression using the tetracycline responsive operator (TRE).
+  </Card>
+  <Card title="Chemogenetic" icon="brain" href="/models/chemogenetic">
+    DREADD-induced expression gated by CNO dosing and doxycycline suppression.
+  </Card>
+  <Card title="Oscillating" icon="wave-sine" href="/models/oscillation">
+    Rapidly oscillating reporter for monitoring dynamic gene expression patterns.
+  </Card>
+</CardGroup>
+
+## Installation
+
+<Steps>
+  <Step title="Install the Python package">
+    Build from source using maturin:
+    ```bash
+    git clone https://github.com/nsbuitrago/rma-kinetics-rs
+    cd rma-kinetics-rs
+    uv venv
+    uvx maturin develop --uv --features py -m crates/rma-kinetics/Cargo.toml
+    ```
+  </Step>
+  <Step title="Or add the Rust crate">
+    ```bash
+    cargo add rma_kinetics
+    ```
+  </Step>
+  <Step title="Run your first simulation">
+    ```python
+    from rma_kinetics.models.constitutive import Model, State
+    from rma_kinetics.solvers import Dopri5
+
+    model = Model()
+    solution = model.solve(0, 100, 1, State(), Dopri5())
+    print(solution.plasma_rma[-1])
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The Python package on PyPI uses an older pure-Python implementation. For the latest Rust-backed bindings, build from source as shown above.
+</Note>

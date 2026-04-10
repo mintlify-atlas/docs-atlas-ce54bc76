@@ -1,0 +1,193 @@
+---
+title: "Stochastic Simulations with RMA Kinetics"
+description: "Run stochastic RMA kinetic simulations with StochasticModel in Python or the StochasticSolve trait in Rust, and add noise to oscillation model results."
+---
+
+Stochastic simulations add biological noise to the deterministic ODE models, capturing the variability inherent in gene expression, protein secretion, and blood-brain barrier transport. The stochastic models are formulated as stochastic differential equations (SDEs) using a drift-diffusion decomposition, where noise terms are drawn from a normal distribution at each time step.
+
+Stochastic support is currently available for the **constitutive model**.
+
+## When to use stochastic simulation
+
+Use the deterministic `Model` when you need a clean population-average trajectory, want to fit parameters to mean data, or require the fastest possible solver throughput.
+
+Use `StochasticModel` when:
+
+- You want to simulate animal-to-animal variability in reporter expression.
+- You are generating synthetic datasets to test statistical analyses.
+- You need to characterize how production or transport noise propagates to the measurable plasma RMA signal.
+- You are modeling conditions where molecular counts are low enough that discrete fluctuations matter.
+
+<Tip>
+  Run multiple stochastic simulations with different seeds and average the trajectories to recover the population-mean prediction. The mean of many stochastic runs converges to the deterministic solution.
+</Tip>
+
+## Python usage
+
+### Importing
+
+```python
+from rma_kinetics.models.constitutive import StochasticModel, State
+from rma_kinetics.solvers import RungeKutta4
+```
+
+### Creating a stochastic model
+
+`StochasticModel` accepts the same kinetic parameters as `Model`, plus noise standard deviations and a random seed:
+
+```python
+# Default parameters
+model = StochasticModel()
+
+# Custom noise and seed for reproducibility
+model = StochasticModel(
+    prod=0.2,
+    bbb_transport=0.6,
+    deg=0.007,
+    prod_noise=0.5,       # std dev of production/secretion noise
+    transport_noise=0.1,  # std dev of transport noise
+    seed=42,
+)
+```
+
+| Parameter          | Default | Description |
+| ------------------ | ------- | ----------- |
+| `prod`             | `0.2`   | RMA production rate (nM/hr) |
+| `bbb_transport`    | `0.6`   | Blood-brain barrier transport rate (1/hr) |
+| `deg`              | `0.007` | Degradation rate (1/hr) |
+| `prod_noise`       | `0.5`   | Gaussian noise std dev applied to the production term |
+| `transport_noise`  | `0.1`   | Gaussian noise std dev applied to the transport term |
+| `seed`             | `42`    | Random seed for reproducibility |
+
+### Running the simulation
+
+The `solve` method signature is identical to the deterministic `Model`:
+
+```python
+init_state = State()
+solver     = RungeKutta4()
+
+solution = model.solve(t0=0, tf=504, dt=1, init_state=init_state, solver=solver)
+```
+
+### Plotting multiple realisations
+
+```python
+import matplotlib.pyplot as plt
+from rma_kinetics.models.constitutive import StochasticModel, State
+from rma_kinetics.solvers import RungeKutta4
+
+n_runs = 20
+
+fig, ax = plt.subplots()
+for seed in range(n_runs):
+    m      = StochasticModel(seed=seed)
+    s      = m.solve(0, 504, 1, State(), RungeKutta4())
+    ax.plot(s.ts, s.plasma_rma, color="steelblue", alpha=0.3, linewidth=0.8)
+
+ax.set_xlabel("Time (hr)")
+ax.set_ylabel("Plasma RMA (nM)")
+ax.set_title(f"Constitutive model — {n_runs} stochastic realisations")
+plt.tight_layout()
+plt.show()
+```
+
+### Applying noise to an oscillation model solution
+
+The `Solution` object returned by the oscillation model exposes an `apply_noise()` method that adds standard normal noise of a given scale directly to the `plasma_rma` array. This is distinct from `StochasticModel` — it is a post-processing step that simulates measurement noise rather than process noise.
+
+```python
+from rma_kinetics.models.oscillation import Model, State
+from rma_kinetics.solvers import Dopri5
+
+model      = Model()
+init_state = State()
+solver     = Dopri5()
+
+solution = model.solve(0, 100, 1, init_state, solver)
+
+# Add noise of scale 0.05 nM to the plasma RMA signal
+solution.apply_noise(0.05)
+
+# solution.plasma_rma now contains the noisy signal
+```
+
+<Warning>
+  `apply_noise()` mutates the `Solution` object in place. If you need the original noiseless signal, copy `solution.plasma_rma` to a NumPy array before calling `apply_noise()`.
+</Warning>
+
+## Rust usage
+
+### StochasticSolve trait
+
+Stochastic models implement the `StochasticSolve` trait instead of `Solve`. The key difference is that `solve` takes `&mut self` because the model owns the internal random number generator, which is mutated during the simulation.
+
+```rust
+use rma_kinetics::{models::constitutive::StochasticModel, StochasticSolve};
+use differential_equations::methods::ExplicitRungeKutta;
+
+fn main() {
+    let mut model  = StochasticModel::default();
+    let init_state = rma_kinetics::models::constitutive::State::zeros();
+    let mut solver = ExplicitRungeKutta::rk4(1.0); // fixed-step RK4
+
+    let solution = model
+        .solve(0., 504., 1., init_state, &mut solver)
+        .expect("stochastic simulation failed");
+
+    let plasma_rma: Vec<f64> = solution.y
+        .iter()
+        .map(|s| s.plasma_rma)
+        .collect();
+
+    println!("Final plasma RMA: {:.4} nM", plasma_rma.last().unwrap());
+}
+```
+
+### Custom parameters in Rust
+
+```rust
+use rma_kinetics::models::constitutive::StochasticModel;
+
+// Constructor
+let mut model = StochasticModel::new(
+    0.2,  // prod
+    0.6,  // bbb_transport
+    0.007, // deg
+    0.5,  // prod_noise
+    0.1,  // transport_noise
+    42,   // seed
+);
+
+// Builder pattern
+let mut model = StochasticModel::builder()
+    .prod(0.3)
+    .prod_noise(0.1)
+    .seed(123)
+    .build()
+    .unwrap();
+
+// Change the seed and reset the RNG mid-experiment
+model.reseed(99);
+```
+
+### Reproducibility
+
+Both the Python and Rust APIs use a seeded `StdRng` internally. The same seed will always produce the same trajectory:
+
+```rust
+use rma_kinetics::{models::constitutive::{StochasticModel, State}, StochasticSolve};
+use differential_equations::methods::ExplicitRungeKutta;
+
+let mut model_a = StochasticModel::default(); // seed = 42
+let mut model_b = StochasticModel::default(); // seed = 42
+
+let mut solver_a = ExplicitRungeKutta::rk4(1.0);
+let mut solver_b = ExplicitRungeKutta::rk4(1.0);
+
+let sol_a = model_a.solve(0., 100., 1., State::zeros(), &mut solver_a).unwrap();
+let sol_b = model_b.solve(0., 100., 1., State::zeros(), &mut solver_b).unwrap();
+
+// Identical trajectories for the same seed
+assert_eq!(sol_a.y[50].plasma_rma, sol_b.y[50].plasma_rma);
+```

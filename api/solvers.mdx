@@ -1,0 +1,192 @@
+---
+title: "Solvers — ODE and SDE Numerical Methods"
+description: "Configure numerical solvers for RMA kinetics simulations. Choose between explicit and implicit Runge-Kutta methods for ODE integration."
+---
+
+The Python API exposes three adaptive-step solvers for integrating kinetic models. Each solver accepts the same set of tolerance and step-size parameters and can be passed directly to `model.solve()`. For direct Rust usage, solvers come from the [`differential_equations`](https://github.com/Ryan-D-Gast/differential-equations) crate and are not wrapped here.
+
+## Choosing a solver
+
+<Tip>
+  Use `Dopri5` for simple models (constitutive, tet-off, oscillation). Use `Kvaerno3` for the chemogenetic model, which couples RMA, doxycycline, and CNO dynamics that operate on very different timescales.
+</Tip>
+
+## Dopri5
+
+The Dormand-Prince 5(4) explicit Runge-Kutta method. This is a widely used, general-purpose adaptive-step ODE solver suitable for non-stiff systems.
+
+```python
+from rma_kinetics.solvers import Dopri5
+from rma_kinetics.models import constitutive
+
+solver = Dopri5(rtol=1e-6, atol=1e-6)
+model = constitutive.Model()
+state = constitutive.State()
+
+solution = model.solve(t0=0.0, tf=100.0, dt=1.0, init_state=state, solver=solver)
+```
+
+<ParamField path="rtol" type="float" default="1e-6">
+  Relative tolerance for the adaptive step-size controller. Controls the allowed relative error per step.
+</ParamField>
+
+<ParamField path="atol" type="float" default="1e-6">
+  Absolute tolerance for the adaptive step-size controller. Controls the allowed absolute error per step.
+</ParamField>
+
+<ParamField path="dt0" type="float" default="0">
+  Initial step size. When set to `0`, the solver selects an initial step size automatically.
+</ParamField>
+
+<ParamField path="min_dt" type="float" default="0">
+  Minimum allowable step size. The solver will not reduce the step below this value.
+</ParamField>
+
+<ParamField path="max_dt" type="float" default="inf">
+  Maximum allowable step size. Limits how large the adaptive step may grow.
+</ParamField>
+
+<ParamField path="max_steps" type="float" default="10000">
+  Maximum number of accepted integration steps before the solver raises an error.
+</ParamField>
+
+<ParamField path="max_rejected_steps" type="float" default="100">
+  Maximum number of consecutively rejected steps before the solver raises an error.
+</ParamField>
+
+<ParamField path="safety_factor" type="float" default="0.9">
+  Multiplicative safety factor applied to the step-size estimate. Values below 1 make the controller more conservative.
+</ParamField>
+
+<ParamField path="min_scale" type="float" default="0.2">
+  Minimum scale factor for step-size adjustment. Prevents the step from shrinking faster than `min_scale × dt`.
+</ParamField>
+
+<ParamField path="max_scale" type="float" default="10">
+  Maximum scale factor for step-size adjustment. Prevents the step from growing faster than `max_scale × dt`.
+</ParamField>
+
+## Kvaerno3
+
+The Kvaerno 3(2) L-stable diagonally implicit Runge-Kutta (DIRK) method. It is third-order accurate and uses four stages. Recommended for stiff systems or models that combine dynamics on disparate timescales, such as the chemogenetic model.
+
+```python
+from rma_kinetics.solvers import Kvaerno3
+from rma_kinetics.models import chemogenetic
+
+solver = Kvaerno3(rtol=1e-6, atol=1e-6)
+model = chemogenetic.Model()
+state = chemogenetic.State()
+
+solution = model.solve(t0=0.0, tf=100.0, dt=1.0, init_state=state, solver=solver)
+```
+
+<ParamField path="rtol" type="float" default="1e-6">
+  Relative tolerance for the adaptive step-size controller.
+</ParamField>
+
+<ParamField path="atol" type="float" default="1e-6">
+  Absolute tolerance for the adaptive step-size controller.
+</ParamField>
+
+<ParamField path="dt0" type="float" default="0">
+  Initial step size. When set to `0`, the solver selects an initial step size automatically.
+</ParamField>
+
+<ParamField path="min_dt" type="float" default="0">
+  Minimum allowable step size.
+</ParamField>
+
+<ParamField path="max_dt" type="float" default="inf">
+  Maximum allowable step size.
+</ParamField>
+
+<ParamField path="max_steps" type="float" default="10000">
+  Maximum number of accepted integration steps before the solver raises an error.
+</ParamField>
+
+<ParamField path="max_rejected_steps" type="float" default="100">
+  Maximum number of consecutively rejected steps before the solver raises an error.
+</ParamField>
+
+<ParamField path="safety_factor" type="float" default="0.9">
+  Multiplicative safety factor applied to the step-size estimate.
+</ParamField>
+
+<ParamField path="min_scale" type="float" default="0.2">
+  Minimum scale factor for step-size adjustment.
+</ParamField>
+
+<ParamField path="max_scale" type="float" default="10">
+  Maximum scale factor for step-size adjustment.
+</ParamField>
+
+## RungeKutta4
+
+The classical fixed-step fourth-order Runge-Kutta method. Unlike `Dopri5` and `Kvaerno3`, this solver does not adapt its step size. Use it when you need reproducible, evenly spaced output and the system is well-behaved at the chosen step size.
+
+```python
+from rma_kinetics.solvers import RungeKutta4
+from rma_kinetics.models import constitutive
+
+solver = RungeKutta4(dt0=0.1)
+model = constitutive.Model()
+state = constitutive.State()
+
+solution = model.solve(t0=0.0, tf=100.0, dt=1.0, init_state=state, solver=solver)
+```
+
+<ParamField path="rtol" type="float" default="1e-6">
+  Relative tolerance. Accepted for API consistency but not used by the fixed-step method.
+</ParamField>
+
+<ParamField path="atol" type="float" default="1e-6">
+  Absolute tolerance. Accepted for API consistency but not used by the fixed-step method.
+</ParamField>
+
+<ParamField path="dt0" type="float" default="0">
+  Initial (and fixed) step size. When set to `0`, a default step size is chosen automatically.
+</ParamField>
+
+<ParamField path="min_dt" type="float" default="0">
+  Minimum allowable step size.
+</ParamField>
+
+<ParamField path="max_dt" type="float" default="inf">
+  Maximum allowable step size.
+</ParamField>
+
+<ParamField path="max_steps" type="float" default="10000">
+  Maximum number of steps before the solver raises an error.
+</ParamField>
+
+<ParamField path="max_rejected_steps" type="float" default="100">
+  Maximum number of consecutively rejected steps before the solver raises an error.
+</ParamField>
+
+<ParamField path="safety_factor" type="float" default="0.9">
+  Safety factor. Accepted for API consistency but not applied by the fixed-step method.
+</ParamField>
+
+<ParamField path="min_scale" type="float" default="0.2">
+  Minimum scale factor. Accepted for API consistency but not applied by the fixed-step method.
+</ParamField>
+
+<ParamField path="max_scale" type="float" default="10">
+  Maximum scale factor. Accepted for API consistency but not applied by the fixed-step method.
+</ParamField>
+
+## Rust solvers
+
+In Rust, solvers are provided directly by the [`differential_equations`](https://github.com/Ryan-D-Gast/differential-equations) crate. Use any solver from that crate that implements `OrdinaryNumericalMethod` (for the `Solve` trait) or `StochasticNumericalMethod` (for the `StochasticSolve` trait). See the [Rust API reference](/api/rust) for trait details.
+
+```rust
+use differential_equations::methods::ExplicitRungeKutta;
+use rma_kinetics::{models::constitutive, Solve};
+
+let mut solver = ExplicitRungeKutta::dopri5();
+let model = constitutive::Model::default();
+let init_state = constitutive::State::zeros();
+
+let solution = model.solve(0.0, 100.0, 1.0, init_state, &mut solver).unwrap();
+```
